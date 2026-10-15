@@ -8,7 +8,7 @@ Deal Grandpa is an evidence-first shopping decision tool. A customer writes a pl
 
 Grandpa checks the committed **FIXTURE** dataset, forms an exact-variant comparison cohort, rejects stale or unsafe observations, and explains one simple decision. If the evidence is not sufficient, the product says **No verified recommendation** instead of guessing.
 
-This repository is a reproducible buildathon implementation: Python 3.11.2, FastAPI, Typer, strict Pydantic v2 boundary models, SQLite, and a static HTML/CSS/JavaScript page with no frontend build chain. The deterministic decision core imports no web framework, database driver, or advisor/LLM.
+This repository is a reproducible buildathon implementation: Python 3.12.11, FastAPI, Typer, strict Pydantic v2 boundary models, SQLite, and a static HTML/CSS/JavaScript page with no frontend build chain. The deterministic decision core imports no web framework, database driver, or advisor/LLM.
 
 ## What is implemented
 
@@ -21,14 +21,15 @@ This repository is a reproducible buildathon implementation: Python 3.11.2, Fast
 - RFC 8785 JSON Canonicalization Scheme (JCS) is used for replay and audit hashes.
 - Evidence Cards use a deterministic template. Every displayed price number has `source_ts`, `fetched_at`, `rules_hash`, and `run_id`. `fetched_at` proves collection time only; freshness comes from `source_ts` and `update_model`.
 - Source registry health includes breaker state and dead-letter count. Fault injection demonstrates allowlisted retry and quarantine actions.
-- Field permissions and retention days are carried by the source registry. `make purge` runs the daily raw-payload deletion workflow while retaining decisions and hashes.
+- Field permissions and explicit revoked fields are enforced in G1. Denied offers are excluded with `PERMISSION_DENIED` or `PERMISSION_REVOKED`; restricted values are not normalized into snapshots, result cards, or audit payloads. `make purge` runs the daily raw-payload deletion workflow while retaining decisions and hashes.
+- Merchant destinations must be HTTPS on the exact approved hostname, with no userinfo or non-443 port. Redirect targets are independently checked. Fixture URLs remain non-clickable and are never rendered as anchors.
 
 ## Quick start
 
-The commands below assume a clean Linux machine with Python 3.11.2 and `uv`. The lockfile is `uv.lock`; dependencies stay inside `.venv`. No credentials are needed for **FIXTURE** mode.
+The commands below assume a clean Linux machine with Python 3.12.11 and `uv`. The lockfile is `uv.lock`; dependencies stay inside `.venv`. No credentials are needed for **FIXTURE** mode.
 
 ```bash
-uv sync --extra test
+uv sync --locked --extra test
 make test
 DEAL_GRANDPA_NOW=2026-10-16T12:00:00Z make run
 ```
@@ -80,6 +81,7 @@ Endpoints:
 - `GET /api/health`
 - `POST /api/runs` with `{"query":"..."}`
 - `GET /api/runs/{run_id}`
+- `GET /api/runs/{run_id}/evidence`
 - `POST /api/runs/{run_id}/replay`
 - `GET /api/sources`
 - `POST /api/fault-injection` with `{"mode":"timeout_once"}`, `persistent_failure`, or `clear`
@@ -89,7 +91,7 @@ No endpoint claims a market-wide best price from one observation; one offer is n
 
 ## Decision contract
 
-The decision state machine is persisted by `run_id`: `SNAPSHOT → NORMALIZE → GATES → ANOMALY → RANK → EXPLAIN → AUDIT`. Repeating a step is idempotent for a run. The replay bundle contains:
+The decision state machine is persisted by `run_id`: `SNAPSHOT → NORMALIZE → GATES → ANOMALY → RANK → EXPLAIN → AUDIT`. Repeating a step is idempotent for a run. Replay reconstructs the normalized fixture from the saved snapshot and does not read the current fixture path. It verifies the stored policy version, review version, rules hash, payload hash, and registry snapshot before evaluating. The replay bundle contains:
 
 1. immutable source input snapshot and its hash;
 2. source-registry snapshot, including permission and retention policy;
@@ -97,7 +99,8 @@ The decision state machine is persisted by `run_id`: `SNAPSHOT → NORMALIZE →
 4. policy/rules version and `rules_hash`;
 5. injected clock;
 6. review decisions (empty in this fixture-only build); and
-7. final result hash plus hash-chained audit events.
+7. final result hash plus hash-chained audit events; and
+8. an external checkpoint at `var/audit_checkpoint.json` containing the expected chain count and terminal hash.
 
 Replay reads the saved input snapshot and never fetches. It returns `MATCH`, `MISMATCH`, or a retention/snapshot reason. Audit verification recomputes every chain link from `GENESIS`.
 
@@ -105,17 +108,17 @@ Replay reads the saved input snapshot and never fetches. It returns `MATCH`, `MI
 
 | Gate | Meaning | Examples of a non-pass reason |
 |---|---|---|
-| G1 | Exact product and variant cohort | `VARIANT_MISMATCH`, `DIFFERENT_COHORT` |
+| G1 | Permissions, exact product and variant cohort | `PERMISSION_DENIED`, `PERMISSION_REVOKED`, `VARIANT_MISMATCH`, `CONDITION_LANE_MISMATCH`, `DIFFERENT_COHORT` |
 | G2 | Identity and input integrity | `INVALID_GTIN`, `IDENTITY_CHECKED` |
 | G3 | Exact money, currency, and budget | `CURRENCY_MISMATCH`, `OVER_BUDGET` |
 | G4 | Source freshness, promotion window, known shipping | `STALE_SOURCE_TIMESTAMP`, `FUTURE_SOURCE_TIMESTAMP`, `PROMO_EXPIRED`, `SHIPPING_UNKNOWN` |
 | G5 | Median/MAD anomaly check | `ANOMALY_MODIFIED_Z`, `INSUFFICIENT_ANOMALY_SAMPLE` |
 | G6 | Two independent source IDs | `INSUFFICIENT_INDEPENDENT_SOURCES` |
-| G7 | Approved source, stock, country, new condition, breaker | `UNAPPROVED_DOMAIN`, `REDIRECT_TRICK`, `OUT_OF_STOCK`, `SOURCE_BREAKER_OPEN` |
+| G7 | Approved source, exact HTTPS destination, stock, country, new condition, breaker | `UNAPPROVED_DOMAIN`, `INVALID_MERCHANT_URL`, `URL_DOMAIN_MISMATCH`, `REDIRECT_TRICK`, `OUT_OF_STOCK`, `SOURCE_BREAKER_OPEN` |
 
 Statuses are exactly `PASS`, `FAIL`, and `ABSTAIN`. `ABSTAIN` never becomes success. A peer must pass every gate, have the same cohort, be new, have reliable price and non-expired promotion data, and be corroborated by at least two independent source IDs. Two offers from one source do not corroborate each other.
 
-Unknown shipping stays in a separate lane and cannot be budget verified. An expired promotion is not applied. `price_minor` already contains discounts; `verified_discount_minor` is evidence metadata only and is never subtracted a second time. A high price produces a warning or anomaly decision; it is not automatically quarantined merely for being high.
+Unknown shipping or fees stays in a separate lane with `UNKNOWN_FEES` and cannot be budget verified. An expired promotion is not applied. `price_minor` already contains discounts; `verified_discount_minor` is evidence metadata only and is never subtracted a second time. The CLI, API evidence response, and UI expose item price, shipping, known fees, verified discount metadata, and effective total. A high price produces a warning or anomaly decision; it is not automatically quarantined merely for being high.
 
 ### Money and freshness
 
@@ -132,19 +135,19 @@ The trust score is fixed at 0–100 with weights 35 exact variant, 20 evidence, 
 
 ## SQLite, permissions, and recovery
 
-The H1 persistence schema has `source_snapshots`, `runs`, `audit_events`, and `source_health`. Raw payloads are immutable from the application path; retention redaction changes only raw payload content to `[REDACTED]` and keeps the hash and run decisions. The registry carries `field_permissions` and `retention_days`; connectors are not allowed to persist fields outside the permission list.
+The H1 persistence schema has `source_snapshots`, `runs`, `audit_events`, and `source_health`. Snapshots contain a permission-filtered projection; restricted raw values are not persisted. Retention redaction changes only raw payload content to `[REDACTED]` and keeps the hash and run decisions. The registry carries `field_permissions`, `revoked_fields`, and `retention_days`; connectors are not allowed to persist fields outside the permission list. The external checkpoint detects tail deletion and head mismatch; it is an integrity anchor, not a complete tamper-proof system if both database and checkpoint are compromised.
 
 Only these recovery actions are allowed: `retry`, `quarantine`, `expire`, `rollback`, `notify`. The demo uses retry once and then quarantine on persistent failure. No arbitrary recovery action is accepted.
 
 ## Tests and golden metrics
 
-`make test` runs unit, golden regression, JCS/reproducibility, schema security, API smoke, replay/audit, and fault-injection tests. The following table is asserted by the CI test suite against `tests/fixtures/golden_offers.json`:
+`make test` runs 36 unit/integration tests covering golden regression, JCS/reproducibility, strict schema security, permissions, condition lanes, URL safety, API smoke, replay/audit, retention, and fault injection. The following table is asserted by the CI test suite against `tests/fixtures/golden_offers.json`:
 
 | Metric | Expected |
 |---|---:|
 | Fixture offers | 180 |
 | Verified exact-variant ranked peers | 3 |
-| Excluded observations after source/duplicate normalization | 173 |
+| Excluded observations after source/condition normalization | 175 |
 | Ranked offers with a variant mismatch | 0 |
 | Ranked offers missing any G1–G7 PASS | 0 |
 | 100x price recommendation | 0 |
@@ -163,10 +166,13 @@ Docker installs the pinned runtime and test extra into the image, then starts Uv
 ```bash
 docker compose up --build
 # visit http://localhost:8000
+
+# Build, start, and run tests in a clean image
+make docker-test
 ```
 
 The project does not include credentials or a network source connector. A production connector must implement the source port, pass the same schema and gates, provide source permissions/retention, and preserve raw input snapshots. It must not turn a failed network read into a recommendation.
 
 ## Honest limitations
 
-This release is a safe **FIXTURE** demonstration, not a claim of real-time market coverage. It does not scrape retailers, perform currency conversion, infer missing variant attributes, or use an advisor model. The static source is intentionally limited so the recommendation can be replayed offline. SQLite is suitable for a local/small deployment; a multi-worker hosted deployment would need a separately reviewed database adapter and signed/external audit storage.
+This release is a safe **FIXTURE** prototype, not a production-ready claim or a claim of market coverage. It does not scrape retailers, perform currency conversion, infer missing attributes, or use an advisor model. The static source is intentionally limited so the recommendation can be replayed offline. SQLite is suitable for a local/small deployment; a multi-worker hosted deployment would need a separately reviewed database adapter and stronger external audit controls. If Docker is unavailable, `make docker-test` must be reported as blocked rather than assumed to pass.

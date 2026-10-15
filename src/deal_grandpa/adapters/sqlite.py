@@ -66,7 +66,7 @@ class SQLiteStore:
     def __init__(self, path: str | Path, checkpoint_path: str | Path | None = None, chain_id: str = "deal-grandpa-fixture-chain-v1"):
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(self.path)
+        self.connection = sqlite3.connect(self.path, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
         self.connection.executescript(_SCHEMA)
         columns = {row[1] for row in self.connection.execute("PRAGMA table_info(runs)").fetchall()}

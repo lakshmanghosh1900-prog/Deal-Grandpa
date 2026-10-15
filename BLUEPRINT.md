@@ -50,13 +50,13 @@ tests/                    unit, integration, security, golden and fault checks
 
 ### Cohort key
 
-A cohort is the normalized tuple:
+A product identity is the normalized tuple:
 
 ```text
 category | brand | model | ram_gb | storage_gb | network | pack_count | color
 ```
 
-Normalization trims, collapses whitespace, and uses Unicode case folding. Requested fields must match exactly. A missing requested attribute is not inferred. `128GB` and `256GB`, `4G` and `5G`, and pack 1 and pack 2 are never one cohort. Condition is outside the key but is a hard peer rule: `new`, `refurbished`, and `open_box` are separate lanes.
+Normalization trims, collapses whitespace, and uses Unicode case folding. Requested fields must match exactly. A missing requested attribute is not inferred. `128GB` and `256GB`, `4G` and `5G`, and pack 1 and pack 2 are never one product identity. Condition is a separate comparison lane: `new`, `refurbished`, and `open_box` are never mixed for ranking, while the physical product identity remains canonical.
 
 The system clusters first. It selects one corroborated cohort for the request and ranks only offers in that cohort. Different products are not mixed into H1 ranking. Product-level recommendation selection remains separate from merchant ranking; if the system cannot establish a single verified cohort, it returns no recommendation.
 
@@ -75,15 +75,15 @@ Gates are evaluated before trust scoring and before ranking. Each card always co
 
 | Gate | Pass condition | Typical reject or abstain codes |
 |---|---|---|
-| G1 exact variant | Query fields and selected cohort match; condition is new | `VARIANT_MISMATCH`, `DIFFERENT_COHORT` |
+| G1 permissions and exact variant | Required fields are permitted, query fields and selected cohort match, and condition lane matches | `PERMISSION_DENIED`, `PERMISSION_REVOKED`, `VARIANT_MISMATCH`, `CONDITION_LANE_MISMATCH`, `DIFFERENT_COHORT` |
 | G2 identity | GTIN checksum valid when present; fallback identity exists | `INVALID_GTIN` |
 | G3 money | Decimal/minor-unit price, same currency, known total under budget | `CURRENCY_MISMATCH`, `OVER_BUDGET` |
 | G4 freshness | `source_ts` is not future or stale; promo active; shipping known | `STALE_SOURCE_TIMESTAMP`, `FUTURE_SOURCE_TIMESTAMP`, `PROMO_EXPIRED`, `PROMO_NOT_STARTED`, `SHIPPING_UNKNOWN` |
 | G5 anomaly | effective cost belongs to median/MAD peer cluster | `ANOMALY_MODIFIED_Z`, `INSUFFICIENT_ANOMALY_SAMPLE` |
 | G6 evidence | at least two distinct approved source IDs in the cohort | `INSUFFICIENT_INDEPENDENT_SOURCES` |
-| G7 trust boundary | approved domain, URL, country, stock, new condition, closed breaker | `UNAPPROVED_DOMAIN`, `REDIRECT_TRICK`, `COUNTRY_RESTRICTED`, `OUT_OF_STOCK`, `SOURCE_BREAKER_OPEN` |
+| G7 trust boundary | approved source, exact HTTPS hostname, country, stock, new condition, closed breaker | `UNAPPROVED_DOMAIN`, `INVALID_MERCHANT_URL`, `URL_DOMAIN_MISMATCH`, `REDIRECT_TRICK`, `COUNTRY_RESTRICTED`, `OUT_OF_STOCK`, `SOURCE_BREAKER_OPEN` |
 
-A gate failure excludes the offer from the verified lane. An abstention is not silently turned into failure or success. Unknown shipping has no effective cost and cannot be budget-verified. A promotion where `promo_valid_until <= now` is expired; its promotional price is rejected. `price_minor` already includes discounts. `verified_discount_minor` is a separately proven fact and is never subtracted again.
+A gate failure excludes the offer from the verified lane. An abstention is not silently turned into failure or success. Unknown shipping or fees has no effective cost, is labelled `UNKNOWN_FEES`, and cannot be budget-verified. A promotion where `promo_valid_until <= now` is expired; its promotional price is rejected. `price_minor` already includes discounts. `verified_discount_minor` is a separately proven fact and is never subtracted again.
 
 ## 5. Exact money and time rules
 
@@ -137,12 +137,12 @@ An advisor rewrite is not used in this build. If added later, it must be passed 
 
 Pydantic v2 strict models reject unknown fields and numeric strings at the input boundary. SQLite tables are:
 
-- `source_snapshots`: immutable raw fixture payload hash, capture time, registry snapshot, and retention-redaction marker;
-- `runs`: run ID, query, policy/rules hash, injected clock, snapshot ID, registry snapshot, review decisions, state, result, result hash;
+- `source_snapshots`: permission-filtered snapshot projection, payload hash, capture time, registry snapshot, and retention-redaction marker;
+- `runs`: run ID, query, policy/rules/review versions, injected clock, snapshot ID, registry snapshot, review decisions, state, result, result hash;
 - `audit_events`: append-only hash chain with event type, actor, previous hash, and event hash;
 - `source_health`: breaker state, dead-letter count, and update time.
 
-Replay inputs are complete: immutable source snapshot, source-registry snapshot, query, policy version, review decisions, and clock. The canonical replay bundle is hashed with RFC 8785 JCS, never a hand-written sorted JSON function. The two committed JCS vectors are tested, including Unicode and number normalization.
+Replay inputs are complete: immutable permission-filtered source snapshot, source-registry snapshot, query, policy version, rules hash, review version/decisions, and clock. Replay reads that saved snapshot directly and does not consult the current fixture path. A policy or review-version mismatch returns `MISMATCH` rather than silently changing history. The canonical replay bundle is hashed with RFC 8785 JCS, never a hand-written sorted JSON function. The two committed JCS vectors are tested, including Unicode and number normalization.
 
 The run state machine is persisted after each idempotent step:
 
@@ -150,7 +150,9 @@ The run state machine is persisted after each idempotent step:
 SNAPSHOT → NORMALIZE → GATES → ANOMALY → RANK → EXPLAIN → AUDIT
 ```
 
-The source registry also carries field-level permission names and `retention_days`. A scheduled `purge` redacts expired raw payloads, retains provenance hashes and decisions, and reports the number of redactions.
+The source registry also carries field-level permission names, explicit `revoked_fields`, and `retention_days`. A scheduled `purge` redacts expired raw payloads, retains provenance hashes and decisions, and reports the number of redactions. Restricted values are not written to snapshots, result cards, or audit payloads.
+
+Audit verification checks both the local chain and the external checkpoint at `var/audit_checkpoint.json`, which anchors the expected count and terminal hash. This detects tail deletion and head mismatch. It is tamper-evident, not absolutely tamper-proof if an attacker can replace both the SQLite database and checkpoint.
 
 ## 9. Source health and recovery
 
@@ -164,21 +166,24 @@ A one-time timeout retries idempotently and produces the same verified result. A
 
 ## 10. Golden dataset and quality gates
 
-`tests/fixtures/golden_offers.json` contains 180 offers and five registry entries. The default fixed-clock run has three verified ranked peers and 173 excluded observations. The test suite asserts:
+`tests/fixtures/golden_offers.json` contains 180 offers and five registry entries. The default fixed-clock run has three verified ranked peers and 175 excluded observations after condition-aware normalization. The test suite asserts:
 
 - exact variant only in the ranked lane;
 - near-miss 128/256, 5G/4G, and pack 1/2 rejection;
 - invalid GTIN, stale, future, 100x, duplicate, unapproved, redirect, country, stock, promotion, shipping, and currency handling;
+- permission denied/revoked, condition-lane separation, exact HTTPS URL validation, and non-clickable fixture links;
 - no source may corroborate itself;
 - Decimal money arithmetic and strict Pydantic;
 - median/MAD including zero MAD;
 - JCS golden hashes and hash-chain verification;
+- audit changed/middle-deleted/reordered/tail-deleted detection and snapshot-only replay;
 - fault retry, quarantine, and honest abstention;
 - API health and static serving; and
+- full cost breakdown including `UNKNOWN_FEES`; and
 - an offline `make test` under the test budget.
 
 ## 11. Delivery and honest boundary
 
-`Dockerfile`, `docker-compose.yml`, `.python-version`, `uv.lock`, `.env.example`, Makefile, README, and tests are committed. The image installs all runtime and test dependencies in the project image; no global dependency or credential is required.
+`Dockerfile`, `docker-compose.yml`, `.python-version`, `uv.lock`, `.env.example`, Makefile, README, and tests are committed. The runtime is pinned to Python 3.12.11. `make docker-test` is the clean-image check when Docker is available; Docker availability must be reported honestly. The image installs all runtime and test dependencies in the project image; no global dependency or credential is required.
 
-The current adapter is intentionally fixture-only. It does not claim retailer coverage, currency conversion, missing-attribute inference, or advisor accuracy. A future connector must preserve the same schemas, permission checks, snapshots, provenance, gates, and replay behavior before it can be used for customer decisions.
+The current adapter is intentionally fixture-only and not production-ready. It does not claim retailer coverage, currency conversion, missing-attribute inference, or advisor accuracy. A future connector must preserve the same schemas, permission checks, sanitized snapshots, provenance, gates, URL rules, and replay behavior before it can be used for customer decisions.

@@ -26,7 +26,7 @@ def _print_decision(decision) -> None:
         typer.echo(f"Grandpa says: {reason}")
     if data["recommendation"]:
         card = data["recommendation"]
-        typer.echo(f"Buy: {card['merchant']} — {card['variant']} — total {card['effective_total_minor']} minor units")
+        typer.echo(f"Buy: {card['merchant']} — {card['variant']} — total {card['effective_cost_display']} ({card['effective_total_minor']} minor units)")
         typer.echo(
             f"Cost breakdown: item={card['item_price_minor']} + shipping={card['shipping_cost_minor']} "
             f"+ fees={card['known_fees_minor']} - verified discount metadata={card['verified_discount_minor']} "
