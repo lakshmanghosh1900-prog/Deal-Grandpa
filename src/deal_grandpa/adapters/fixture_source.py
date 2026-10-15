@@ -85,6 +85,7 @@ class FixtureSource:
                 Money.from_minor(item.shipping.amount_minor, shipping_currency)
                 if item.shipping.amount_minor is not None else None
             )
+            fees = Money.from_minor(item.fees.amount_minor, item.currency) if item.fees.status == "known" else None
             list_price = Money.from_minor(item.list_price_minor, item.currency) if item.list_price_minor is not None else None
             discount = Money.from_minor(item.verified_discount_minor, item.currency) if item.verified_discount_minor is not None else None
             normalized.append(
@@ -93,13 +94,15 @@ class FixtureSource:
                     source=source,
                     merchant=item.merchant,
                     url=item.url,
-                    domain=item.domain,
-                    title=item.title,
+                    domain=source.domain,
+                    title=item.title if source.permission_state("title") is PermissionState.ALLOWED else "",
                     variant=normalized_variant(item.category, item.brand, item.model, item.variant.model_dump()),
                     condition=item.condition,
                     price=Money.from_minor(item.price_minor, item.currency),
                     shipping_status=item.shipping.status,
                     shipping=shipping,
+                    fees_status=item.fees.status,
+                    fees=fees,
                     list_price=list_price,
                     verified_discount=discount,
                     promo_starts_at=parse_timestamp(item.promo_starts_at) if item.promo_starts_at else None,
@@ -112,7 +115,7 @@ class FixtureSource:
                     mpn=item.mpn,
                     country=item.country,
                     redirect_url=item.redirect_url,
-                    source_record_id=item.source_record_id,
+                    source_record_id=item.source_record_id if source.permission_state("source_record_id") is PermissionState.ALLOWED else "",
                     permission_failures=failures,
                 )
             )
@@ -140,14 +143,17 @@ class FixtureSource:
             "variant": {"ram_gb": None, "storage_gb": None, "network": None, "pack_count": 1, "color": None},
             "condition": "new", "price_minor": 0, "currency": "INR",
             "shipping": {"status": "unknown", "amount_minor": None, "currency": "INR"},
+            "fees": {"status": "unknown", "amount_minor": 0},
             "list_price_minor": None, "verified_discount_minor": None, "promo_starts_at": None,
             "promo_valid_until": None, "source_ts": "1970-01-01T00:00:00Z", "fetched_at": "1970-01-01T00:00:00Z",
             "update_model": "daily", "availability": "out_of_stock", "gtin": None, "mpn": None,
             "country": "", "url": "", "redirect_url": None, "source_record_id": "",
         }
-        for field, state in states.items():
-            if state is not PermissionState.ALLOWED:
+        protected_fields = tuple(defaults)
+        for field in protected_fields:
+            if source.permission_state(field) is not PermissionState.ALLOWED:
                 record[field] = defaults[field]
+        record["domain"] = source.domain
         if failures:
             record["_permission_failures"] = [{"field": field, "state": state.value} for field, state in failures]
         return record
@@ -158,7 +164,7 @@ class FixtureSource:
         return Offer(
             offer_id=offer_id, source=source, merchant="", url="", domain=source.domain, title="",
             variant=Variant("", "", "", None, None, None, 1, None), condition="new",
-            price=Money.from_minor(0, "INR"), shipping_status="unknown", shipping=None, list_price=None,
+            price=Money.from_minor(0, "INR"), shipping_status="unknown", shipping=None, fees_status="unknown", fees=None, list_price=None,
             verified_discount=None, promo_starts_at=None, promo_valid_until=None, source_ts=epoch,
             fetched_at=epoch, update_model="daily", availability="out_of_stock", gtin=None, mpn=None,
             country="", redirect_url=None, source_record_id="", permission_failures=failures,

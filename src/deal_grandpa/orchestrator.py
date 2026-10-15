@@ -8,6 +8,8 @@ from typing import Any, Callable
 
 from deal_grandpa.adapters.fixture_source import FixtureSource, LoadedFixture, SourceError
 from deal_grandpa.adapters.sqlite import SQLiteStore
+from dataclasses import replace
+
 from deal_grandpa.domain.canonical import canonical_hash
 from deal_grandpa.domain.models import (
     ClusterStats,
@@ -22,6 +24,7 @@ from deal_grandpa.domain.models import (
     SourceInfo,
 )
 from deal_grandpa.domain.policy import (
+    REVIEW_VERSION,
     RULESET_VERSION,
     _integrity_gate,
     _initial_gates,
@@ -32,6 +35,7 @@ from deal_grandpa.domain.policy import (
     iso_timestamp,
     parse_query,
     parse_timestamp,
+    policy_manifest,
     variant_matches_query,
 )
 
@@ -68,6 +72,11 @@ class DealGrandpaService:
         ]
 
     @staticmethod
+    def _policy_metadata() -> tuple[str, str, str]:
+        manifest = policy_manifest()
+        return RULESET_VERSION, REVIEW_VERSION, canonical_hash(manifest)
+
+    @staticmethod
     def _deduplicate(offers: tuple[Offer, ...]) -> tuple[Offer, ...]:
         by_fingerprint: dict[tuple[str, str, str, int, int | None], Offer] = {}
         for offer in offers:
@@ -102,28 +111,33 @@ class DealGrandpaService:
                 return LoadedFixture(loaded.fixture_id, loaded.raw_payload, loaded.sources, tuple()), tuple(recovered)
         return loaded, tuple(recovered)
 
-    def run(
+    def _evaluate_loaded_fixture(
         self,
         query_text: str,
-        run_id: str | None = None,
-        now: datetime | None = None,
-        actor: str = "cli",
+        run_id: str,
+        current: datetime,
+        loaded: LoadedFixture,
+        recovery: tuple[str, ...],
+        actor: str,
+        persist: bool,
     ) -> Decision:
-        run_id = run_id or str(uuid.uuid4())
-        current = (now or self.clock()).astimezone(timezone.utc)
         query = parse_query(query_text)
-        rules_hash = canonical_hash({"policy_version": RULESET_VERSION, "anomaly_z": "3.5", "trust_weights": [35, 20, 15, 10, 20]})
-        loaded, recovery = self._load_with_recovery(run_id, actor)
+        policy_version, review_version, rules_hash = self._policy_metadata()
         snapshot_id = canonical_hash(loaded.raw_payload)
         registry = self._registry_dict(loaded.sources)
-        self.store.save_snapshot(snapshot_id, loaded.fixture_id, loaded.raw_payload, registry, iso_timestamp(current))
-        self.store.start_run(run_id, snapshot_id, query_text, RULESET_VERSION, rules_hash, iso_timestamp(current), registry, [])
-        self.store.append_audit(str(uuid.uuid4()), run_id, "RUN_STARTED", actor, {"query": query_text, "policy_version": RULESET_VERSION})
-        for source in loaded.sources:
-            self.store.upsert_source_health(source.source_id, source.breaker_state, source.dead_letter_count)
-        self.store.update_state(run_id, "NORMALIZE")
+        if persist:
+            self.store.save_snapshot(snapshot_id, loaded.fixture_id, loaded.raw_payload, registry, iso_timestamp(current))
+            self.store.start_run(run_id, snapshot_id, query_text, policy_version, rules_hash, review_version, iso_timestamp(current), registry, [])
+            self.store.append_audit(
+                str(uuid.uuid4()), run_id, "RUN_STARTED", actor,
+                {"query": query_text, "snapshot_id": snapshot_id, "policy_version": policy_version, "rules_hash": rules_hash, "review_version": review_version},
+            )
+            for source in loaded.sources:
+                self.store.upsert_source_health(source.source_id, source.breaker_state, source.dead_letter_count)
+            self.store.update_state(run_id, "NORMALIZE")
         offers = self._deduplicate(loaded.offers)
-        self.store.update_state(run_id, "GATES")
+        if persist:
+            self.store.update_state(run_id, "GATES")
         selected = choose_cohort(offers, query, current)
         stat_offers = tuple(
             offer for offer in offers
@@ -133,27 +147,23 @@ class DealGrandpaService:
             and _integrity_gate(offer, query).status is GateStatus.PASS
         )
         all_stats = cluster_statistics(stat_offers)
-        self.store.update_state(run_id, "ANOMALY")
-        selected_stats = all_stats.get((selected, query.condition)) if selected else None
+        if persist:
+            self.store.update_state(run_id, "ANOMALY")
         source_sets: dict[tuple[str, str], set[str]] = defaultdict(set)
         for offer in stat_offers:
             source_sets[(cohort_key(offer.variant), offer.condition)].add(offer.source.source_id)
         cohort_sources = {key: len(value) for key, value in source_sets.items()}
         evaluations = tuple(
             evaluate_offer(
-                offer,
-                query,
-                current,
-                selected,
+                offer, query, current, selected,
                 all_stats.get((cohort_key(offer.variant), offer.condition)),
                 cohort_sources.get((cohort_key(offer.variant), offer.condition), 0),
-                run_id,
-                rules_hash,
+                run_id, rules_hash,
             )
             for offer in offers
         )
-        self.store.update_state(run_id, "RANK")
-        # A source may publish retries or multiple URLs, but it gets one peer slot.
+        if persist:
+            self.store.update_state(run_id, "RANK")
         peer_winners: dict[str, OfferEvaluation] = {}
         if selected:
             for item in evaluations:
@@ -164,8 +174,15 @@ class DealGrandpaService:
                 if previous is None or (item.effective_cost.to_minor(), item.offer.offer_id) < (previous.effective_cost.to_minor(), previous.offer.offer_id):
                     peer_winners[source_id] = item
         ranked = tuple(sorted(peer_winners.values(), key=lambda item: (item.effective_cost.to_minor(), -(item.trust_score or 0), item.offer.offer_id)))
-        excluded = tuple(item for item in evaluations if item not in ranked)
-        self.store.update_state(run_id, "EXPLAIN")
+        ranked_ids = {item.offer.offer_id for item in ranked}
+        excluded = tuple(
+            replace(item, explanation="Excluded because SAME_SOURCE_ALTERNATE.")
+            if item.eligible and item.offer.offer_id not in ranked_ids and selected and cohort_key(item.offer.variant) == selected
+            else item
+            for item in evaluations if item.offer.offer_id not in ranked_ids
+        )
+        if persist:
+            self.store.update_state(run_id, "EXPLAIN")
         recommendation: OfferEvaluation | None = None
         reasons: list[str] = []
         if not selected:
@@ -179,32 +196,35 @@ class DealGrandpaService:
             reasons.append("Verified recommendation: exact variant, current price, known shipping, and independent evidence passed.")
         if recovery:
             reasons.append("Connector recovered with allowlisted action(s): " + ", ".join(recovery) + ".")
-        if recommendation:
-            outcome = Outcome.RECOMMEND
-        elif selected:
-            outcome = Outcome.WITH_CAVEATS
-        else:
-            outcome = Outcome.ABSTAIN
+        outcome = Outcome.RECOMMEND if recommendation else Outcome.ABSTAIN
         decision = Decision(
-            run_id=run_id,
-            query=query,
-            outcome=outcome,
-            selected_cohort=selected,
-            ranked=ranked,
-            excluded=excluded,
-            cluster_stats=tuple(sorted(all_stats.values(), key=lambda item: item.cohort)),
-            recommendation=recommendation,
-            reasons=tuple(reasons),
-            rules_hash=rules_hash,
+            run_id=run_id, query=query, outcome=outcome, selected_cohort=selected,
+            ranked=ranked, excluded=excluded,
+            cluster_stats=tuple(sorted(all_stats.values(), key=lambda item: (item.cohort, item.condition))),
+            recommendation=recommendation, reasons=tuple(reasons), rules_hash=rules_hash,
+            policy_version=policy_version, review_version=review_version,
             source_registry_snapshot=loaded.sources,
         )
-        self.store.update_state(run_id, "AUDIT")
-        result = decision_to_dict(decision)
-        result["recovery"] = list(recovery)
-        result_hash = canonical_hash(result)
-        self.store.finish_run(run_id, outcome.value, result, result_hash)
-        self.store.append_audit(str(uuid.uuid4()), run_id, "RUN_FINISHED", actor, {"outcome": outcome.value, "result_hash": result_hash})
+        if persist:
+            self.store.update_state(run_id, "AUDIT")
+            result = decision_to_dict(decision)
+            result["recovery"] = list(recovery)
+            result_hash = canonical_hash(result)
+            self.store.finish_run(run_id, outcome.value, result, result_hash)
+            self.store.append_audit(str(uuid.uuid4()), run_id, "RUN_FINISHED", actor, {"outcome": outcome.value, "result_hash": result_hash})
         return decision
+
+    def run(
+        self,
+        query_text: str,
+        run_id: str | None = None,
+        now: datetime | None = None,
+        actor: str = "cli",
+    ) -> Decision:
+        run_id = run_id or str(uuid.uuid4())
+        current = (now or self.clock()).astimezone(timezone.utc)
+        loaded, recovery = self._load_with_recovery(run_id, actor)
+        return self._evaluate_loaded_fixture(query_text, run_id, current, loaded, recovery, actor, persist=True)
 
     def replay(self, run_id: str, actor: str = "cli") -> dict[str, Any]:
         row = self.store.run(run_id)
@@ -213,24 +233,34 @@ class DealGrandpaService:
         snapshot = self.store.snapshot(row["snapshot_id"])
         if snapshot is None or snapshot["payload_json"] == "[REDACTED]":
             return {"run_id": run_id, "status": "MISMATCH", "reason": "immutable input snapshot was redacted by retention policy"}
-        raw = json.loads(snapshot["payload_json"])
-        temporary_path = None
+        policy_version, review_version, rules_hash = self._policy_metadata()
+        if row["policy_version"] != policy_version or row["rules_hash"] != rules_hash:
+            return {"run_id": run_id, "status": "MISMATCH", "reason": "POLICY_VERSION_MISMATCH"}
+        if row["review_version"] != review_version:
+            return {"run_id": run_id, "status": "MISMATCH", "reason": "REVIEW_VERSION_MISMATCH"}
         try:
-            # Source replay is a pure snapshot replay, never a network read.
-            source = FixtureSource(self.fixture_path)
-            fixture = source.load(None)
-            if canonical_hash(fixture.raw_payload) != canonical_hash(raw):
-                return {"run_id": run_id, "status": "MISMATCH", "reason": "snapshot no longer matches fixture input"}
-            replayed = self.run(row["query_text"], run_id=run_id, now=parse_timestamp(row["clock"]), actor=actor)
-            result = decision_to_dict(replayed)
-            result["recovery"] = []
-            actual = canonical_hash(result)
-            status = "MATCH" if actual == row["result_hash"] else "MISMATCH"
-            self.store.append_audit(str(uuid.uuid4()), run_id, "REPLAY_VERIFIED", actor, {"status": status, "expected": row["result_hash"], "actual": actual})
-            return {"run_id": run_id, "status": status, "expected": row["result_hash"], "actual": actual}
-        finally:
-            if temporary_path:
-                temporary_path.unlink(missing_ok=True)
+            raw = json.loads(snapshot["payload_json"])
+        except json.JSONDecodeError:
+            return {"run_id": run_id, "status": "MISMATCH", "reason": "SNAPSHOT_INVALID"}
+        if canonical_hash(raw) != snapshot["payload_hash"] or snapshot["snapshot_id"] != canonical_hash(raw):
+            return {"run_id": run_id, "status": "MISMATCH", "reason": "SNAPSHOT_HASH_MISMATCH"}
+        loaded = FixtureSource.load_payload(raw)
+        stored_registry = json.loads(snapshot["source_registry_json"])
+        if canonical_hash(stored_registry) != canonical_hash(self._registry_dict(loaded.sources)):
+            return {"run_id": run_id, "status": "MISMATCH", "reason": "REGISTRY_SNAPSHOT_MISMATCH"}
+        stored_result = json.loads(row["result_json"] or "{}")
+        recovery = tuple(stored_result.get("recovery", []))
+        if "quarantine" in recovery:
+            loaded = replace(loaded, offers=tuple())
+        replayed = self._evaluate_loaded_fixture(
+            row["query_text"], run_id, parse_timestamp(row["clock"]), loaded, recovery, actor, persist=False,
+        )
+        result = decision_to_dict(replayed)
+        result["recovery"] = list(recovery)
+        actual = canonical_hash(result)
+        status = "MATCH" if actual == row["result_hash"] else "MISMATCH"
+        self.store.append_audit(str(uuid.uuid4()), run_id, "REPLAY_VERIFIED", actor, {"status": status, "expected": row["result_hash"], "actual": actual})
+        return {"run_id": run_id, "status": status, "expected": row["result_hash"], "actual": actual}
 
     def verify_log(self) -> tuple[bool, str]:
         return self.store.verify_audit()
@@ -244,18 +274,29 @@ def gate_to_dict(gate: Any) -> dict[str, str]:
 
 
 def evidence_card(item: OfferEvaluation) -> dict[str, Any]:
+    restricted = bool(item.offer.permission_failures)
+    shipping_minor = item.offer.shipping.to_minor() if item.offer.shipping and not restricted else None
+    fees_minor = item.offer.fees.to_minor() if item.offer.fees and not restricted else None
+    effective_minor = item.effective_cost.to_minor() if item.effective_cost and not restricted else None
     return {
         "template": "evidence-card-v1",
         "offer_id": item.offer.offer_id,
-        "merchant": item.offer.merchant,
-        "variant": item.offer.variant.label(),
-        "price_minor": item.offer.price.to_minor(),
-        "shipping_minor": item.offer.shipping.to_minor() if item.offer.shipping else None,
-        "effective_cost_minor": item.effective_cost.to_minor() if item.effective_cost else None,
-        "currency": item.offer.price.currency,
-        "price_display": format_money(item.offer.price),
-        "shipping_display": format_money(item.offer.shipping),
-        "effective_cost_display": format_money(item.effective_cost),
+        "merchant": None if restricted else item.offer.merchant,
+        "variant": None if restricted else item.offer.variant.label(),
+        "price_minor": None if restricted else item.offer.price.to_minor(),
+        "shipping_minor": shipping_minor,
+        "effective_cost_minor": effective_minor,
+        "item_price_minor": None if restricted else item.offer.price.to_minor(),
+        "shipping_cost_minor": shipping_minor,
+        "verified_discount_minor": None if restricted or item.offer.verified_discount is None else item.offer.verified_discount.to_minor(),
+        "known_fees_minor": [] if restricted or item.offer.fees is None else [fees_minor],
+        "fees_status": "UNKNOWN_FEES" if restricted or item.offer.effective_cost() is None else "KNOWN",
+        "effective_total_minor": effective_minor,
+        "currency": None if restricted else item.offer.price.currency,
+        "price_display": None if restricted else format_money(item.offer.price),
+        "shipping_display": None if restricted else format_money(item.offer.shipping),
+        "fees_display": None if restricted else format_money(item.offer.fees),
+        "effective_cost_display": None if restricted else format_money(item.effective_cost),
         "trust_score": item.trust_score,
         "gates": [gate_to_dict(gate) for gate in item.gates],
         "numbers": [
@@ -276,10 +317,12 @@ def decision_to_dict(decision: Decision) -> dict[str, Any]:
         "ranked": [evidence_card(item) for item in decision.ranked],
         "excluded": [evidence_card(item) for item in decision.excluded],
         "cluster_stats": [
-            {"cohort": stat.cohort, "count": stat.count, "median_minor": stat.median_minor, "mad_minor": stat.mad_minor}
+            {"cohort": stat.cohort, "condition": stat.condition, "count": stat.count, "median_minor": stat.median_minor, "mad_minor": stat.mad_minor}
             for stat in decision.cluster_stats
         ],
         "reasons": list(decision.reasons),
+        "policy_version": decision.policy_version,
+        "review_version": decision.review_version,
         "rules_hash": decision.rules_hash,
         "source_health": [
             {"source_id": source.source_id, "domain": source.domain, "breaker_state": source.breaker_state, "dead_letter_count": source.dead_letter_count, "reliability": source.reliability}

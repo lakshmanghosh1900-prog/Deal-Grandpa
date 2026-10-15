@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, Strict
 
 KNOWN_PERMISSION_FIELDS = frozenset({
     "merchant", "title", "category", "brand", "model", "variant", "condition",
-    "price_minor", "currency", "shipping", "list_price_minor", "verified_discount_minor",
+    "price_minor", "currency", "shipping", "fees", "list_price_minor", "verified_discount_minor",
     "promo_starts_at", "promo_valid_until", "source_ts", "fetched_at", "update_model",
     "availability", "gtin", "mpn", "country", "url", "redirect_url", "source_record_id",
 })
@@ -38,6 +38,17 @@ class ShippingInput(StrictSchema):
         if status == "unknown" and value is not None:
             raise ValueError("unknown shipping cannot carry an amount")
         return value
+
+
+class FeesInput(StrictSchema):
+    status: Literal["known", "unknown"] = "known"
+    amount_minor: StrictInt = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def unknown_fees_have_no_amount(self):
+        if self.status == "unknown" and self.amount_minor != 0:
+            raise ValueError("unknown fees cannot carry an amount")
+        return self
 
 
 class SourceInput(StrictSchema):
@@ -83,6 +94,7 @@ class OfferInput(StrictSchema):
     price_minor: StrictInt = Field(ge=0)
     currency: StrictStr
     shipping: ShippingInput
+    fees: FeesInput = FeesInput()
     list_price_minor: StrictInt | None = Field(default=None, ge=0)
     verified_discount_minor: StrictInt | None = Field(default=None, ge=0)
     promo_starts_at: StrictStr | None = None
@@ -131,12 +143,22 @@ class NumberProvenanceOutput(StrictSchema):
 class EvidenceCardOutput(StrictSchema):
     template: Literal["evidence-card-v1"]
     offer_id: StrictStr
-    merchant: StrictStr
-    variant: StrictStr
-    price_minor: StrictInt
+    merchant: StrictStr | None
+    variant: StrictStr | None
+    price_minor: StrictInt | None
     shipping_minor: StrictInt | None
     effective_cost_minor: StrictInt | None
-    currency: StrictStr
+    item_price_minor: StrictInt | None
+    shipping_cost_minor: StrictInt | None
+    verified_discount_minor: StrictInt | None
+    known_fees_minor: list[StrictInt]
+    fees_status: StrictStr
+    effective_total_minor: StrictInt | None
+    currency: StrictStr | None
+    price_display: StrictStr | None
+    shipping_display: StrictStr | None
+    fees_display: StrictStr | None
+    effective_cost_display: StrictStr | None
     trust_score: StrictInt | None
     gates: list[GateOutput]
     numbers: list[NumberProvenanceOutput]
@@ -152,5 +174,7 @@ class RunOutput(StrictSchema):
     ranked: list[EvidenceCardOutput]
     excluded: list[EvidenceCardOutput]
     reasons: list[StrictStr]
+    policy_version: StrictStr
+    review_version: StrictStr
     rules_hash: StrictStr
     source_health: list[dict]

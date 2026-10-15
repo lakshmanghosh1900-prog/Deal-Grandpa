@@ -26,7 +26,7 @@ REVIEW_VERSION = "dg-review-0"
 MAX_ANOMALY_Z = Decimal("3.5")
 ANOMALY_FACTOR = Decimal("0.6745")
 REQUIRED_PERMISSION_FIELDS = (
-    "variant", "condition", "price_minor", "currency", "shipping", "source_ts",
+    "variant", "condition", "price_minor", "currency", "shipping", "fees", "source_ts",
     "fetched_at", "availability", "country", "url", "merchant", "mpn",
 )
 

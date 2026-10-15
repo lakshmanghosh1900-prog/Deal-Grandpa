@@ -37,13 +37,21 @@ def test_permission_missing_field_excluded(tmp_path):
         source = next(item for item in payload["sources"] if item["source_id"] == "shop-a")
         source["field_permissions"].remove("price_minor")
         source["field_permissions"].remove("merchant")
-        next(item for item in payload["offers"] if item["offer_id"] == "offer-0001")["merchant"] = "PERMISSION_SENTINEL"
+        offer = next(item for item in payload["offers"] if item["offer_id"] == "offer-0001")
+        offer["merchant"] = "PERMISSION_SENTINEL"
+        offer["title"] = "TITLE_SENTINEL"
+        offer["source_record_id"] = "RECORD_SENTINEL"
 
     service, decision = _run(tmp_path, mutate)
     item = _offer(decision, "offer-0001")
     assert item.gates[0].reason_code == "PERMISSION_DENIED"
     snapshot = service.store.snapshot(service.store.run(decision.run_id)["snapshot_id"])
     assert "PERMISSION_SENTINEL" not in snapshot["payload_json"]
+    assert "TITLE_SENTINEL" not in snapshot["payload_json"]
+    assert "RECORD_SENTINEL" not in snapshot["payload_json"]
+    assert "PERMISSION_SENTINEL" not in service.store.run(decision.run_id)["result_json"]
+    audit_payloads = service.store.connection.execute("SELECT payload_json FROM audit_events").fetchall()
+    assert all("PERMISSION_SENTINEL" not in row[0] for row in audit_payloads)
 
 
 def test_permission_revoked_excluded(tmp_path):

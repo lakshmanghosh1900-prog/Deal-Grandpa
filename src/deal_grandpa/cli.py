@@ -26,7 +26,12 @@ def _print_decision(decision) -> None:
         typer.echo(f"Grandpa says: {reason}")
     if data["recommendation"]:
         card = data["recommendation"]
-        typer.echo(f"Buy: {card['merchant']} — {card['variant']} — total {card['effective_cost_display']}")
+        typer.echo(f"Buy: {card['merchant']} — {card['variant']} — total {card['effective_total_minor']} minor units")
+        typer.echo(
+            f"Cost breakdown: item={card['item_price_minor']} + shipping={card['shipping_cost_minor']} "
+            f"+ fees={card['known_fees_minor']} - verified discount metadata={card['verified_discount_minor']} "
+            f"=> effective={card['effective_total_minor']} ({card['fees_status']})"
+        )
         typer.echo(f"Why: {card['explanation']}")
         typer.echo("Evidence Card:")
         for gate in card["gates"]:
@@ -36,7 +41,12 @@ def _print_decision(decision) -> None:
     if data["ranked"]:
         typer.echo("Ranked exact-variant offers:")
         for rank, card in enumerate(data["ranked"], 1):
-            typer.echo(f"  {rank}. {card['merchant']} total={card['effective_cost_display']} trust={card['trust_score']}")
+            typer.echo(
+                f"  {rank}. {card['merchant']} item={card['item_price_minor']} "
+                f"shipping={card['shipping_cost_minor']} fees={card['known_fees_minor']} "
+                f"discount_metadata={card['verified_discount_minor']} total={card['effective_total_minor']} "
+                f"status={card['fees_status']} trust={card['trust_score']}"
+            )
     typer.echo(f"Excluded offers: {len(data['excluded'])}")
 
 

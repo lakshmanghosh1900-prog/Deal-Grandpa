@@ -56,6 +56,22 @@ def get_run(run_id: str):
     return json.loads(row["result_json"])
 
 
+@app.get("/api/runs/{run_id}/evidence")
+def get_evidence(run_id: str):
+    row = store.run(run_id)
+    if row is None or row["result_json"] is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    import json
+    result = json.loads(row["result_json"])
+    return {
+        "run_id": run_id,
+        "outcome": result["outcome"],
+        "recommendation": result["recommendation"],
+        "ranked": result["ranked"],
+        "reasons": result["reasons"],
+    }
+
+
 @app.post("/api/runs/{run_id}/replay")
 def replay(run_id: str):
     try:

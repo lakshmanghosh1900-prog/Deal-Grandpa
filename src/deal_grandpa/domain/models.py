@@ -157,6 +157,8 @@ class Offer:
     price: Money
     shipping_status: str
     shipping: Money | None
+    fees_status: str
+    fees: Money | None
     list_price: Money | None
     verified_discount: Money | None
     promo_starts_at: datetime | None
@@ -173,11 +175,11 @@ class Offer:
     permission_failures: tuple[tuple[str, PermissionState], ...] = ()
 
     def effective_cost(self) -> Money | None:
-        if self.shipping_status != "known" or self.shipping is None:
+        if self.shipping_status != "known" or self.shipping is None or self.fees_status != "known" or self.fees is None:
             return None
-        if self.price.currency != self.shipping.currency:
+        if self.price.currency != self.shipping.currency or self.price.currency != self.fees.currency:
             return None
-        return self.price + self.shipping
+        return self.price + self.shipping + self.fees
 
 
 @dataclass(frozen=True)
@@ -250,6 +252,8 @@ class Decision:
     recommendation: OfferEvaluation | None
     reasons: tuple[str, ...]
     rules_hash: str
+    policy_version: str
+    review_version: str
     source_registry_snapshot: tuple[SourceInfo, ...]
 
     @property
