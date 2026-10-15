@@ -12,6 +12,7 @@ def test_demo_recommends_only_one_exact_variant_with_full_gates(service):
     assert all(len(item.gates) == 7 for item in decision.ranked)
     assert all(g.status.value == "PASS" for item in decision.ranked for g in item.gates)
     assert all(number.source_ts and number.fetched_at and number.rules_hash == decision.rules_hash and number.run_id == decision.run_id for item in decision.ranked for number in item.evidence_numbers)
+    assert all(any(number.name == "price_minor" for number in item.evidence_numbers) for item in decision.ranked + decision.excluded)
 
 def test_golden_dataset_excludes_near_misses_stale_and_suspicious_prices(service):
     decision = service.run(QUERY)

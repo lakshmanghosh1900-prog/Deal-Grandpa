@@ -288,17 +288,15 @@ def evaluate_offer(
     gates.append(_integrity_gate(offer, query))
     effective = offer.effective_cost()
     score = _trust_score(offer, source_count, stats, query) if effective else None
-    numbers = ()
+    stamp = iso_timestamp(offer.source_ts)
+    fetched = iso_timestamp(offer.fetched_at)
+    # Every numeric fact shown on an Evidence Card carries both timestamps and both hashes.
+    evidence_numbers = [EvidenceNumber("price_minor", str(offer.price.to_minor()), stamp, fetched, rules_hash, run_id)]
+    if offer.shipping is not None:
+        evidence_numbers.append(EvidenceNumber("shipping_minor", str(offer.shipping.to_minor()), stamp, fetched, rules_hash, run_id))
     if effective is not None:
-        stamp = iso_timestamp(offer.source_ts)
-        fetched = iso_timestamp(offer.fetched_at)
-        numbers = (
-            # Every displayed number carries both source timestamps and both hashes.
-            # The caller validates that the card's number set is complete.
-            EvidenceNumber("price_minor", str(offer.price.to_minor()), stamp, fetched, rules_hash, run_id),
-            EvidenceNumber("shipping_minor", str(offer.shipping.to_minor() if offer.shipping else "unknown"), stamp, fetched, rules_hash, run_id),
-            EvidenceNumber("effective_cost_minor", str(effective.to_minor()), stamp, fetched, rules_hash, run_id),
-        )
+        evidence_numbers.append(EvidenceNumber("effective_cost_minor", str(effective.to_minor()), stamp, fetched, rules_hash, run_id))
+    numbers = tuple(evidence_numbers)
     passed = [item for item in gates if item.status is GateStatus.PASS]
     failures = [item for item in gates if item.status is GateStatus.FAIL]
     caveats = [item for item in gates if item.status is GateStatus.ABSTAIN]
