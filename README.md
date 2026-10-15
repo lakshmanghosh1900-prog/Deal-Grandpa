@@ -141,7 +141,7 @@ Only these recovery actions are allowed: `retry`, `quarantine`, `expire`, `rollb
 
 ## Tests and golden metrics
 
-`make test` runs 36 unit/integration tests covering golden regression, JCS/reproducibility, strict schema security, permissions, condition lanes, URL safety, API smoke, replay/audit, retention, and fault injection. The following table is asserted by the CI test suite against `tests/fixtures/golden_offers.json`:
+`make test` runs 37 unit/integration tests covering golden regression, JCS/reproducibility, strict schema security, permissions, condition lanes, URL safety, API smoke, replay/audit, retention, and fault injection. The following table is asserted by the CI test suite against `tests/fixtures/golden_offers.json`:
 
 | Metric | Expected |
 |---|---:|
