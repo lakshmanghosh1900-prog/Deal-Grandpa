@@ -3,7 +3,7 @@ APP = deal-grandpa
 DB ?= var/deal_grandpa.sqlite3
 FIXTURE ?= tests/fixtures/golden_offers.json
 
-.PHONY: test run api demo verify-log purge docker-up
+.PHONY: test run api demo verify-log purge docker-up docker-test
 
 test:
 	ADVISOR=none $(PYTHON) -m pytest
@@ -24,3 +24,6 @@ purge:
 
 docker-up:
 	docker compose up --build
+
+docker-test:
+	set +e; docker compose up --build -d; status=$$?; if test $$status -eq 0; then docker compose run --rm -e ADVISOR=none deal-grandpa python -m pytest; status=$$?; fi; docker compose down; exit $$status

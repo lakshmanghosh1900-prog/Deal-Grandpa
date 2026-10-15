@@ -15,7 +15,8 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           version: "0.5.31"
-      - run: uv sync --extra test
+      - run: uv sync --locked --extra test
+      - run: python -c "import sys; assert sys.version_info[:3] == (3, 12, 11), sys.version"
       - run: make test
         env:
           ADVISOR: none
