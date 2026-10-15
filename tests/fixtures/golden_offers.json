@@ -10,11 +10,30 @@
       "breaker_state": "closed",
       "dead_letter_count": 0,
       "field_permissions": [
-        "price_minor",
-        "shipping",
+        "merchant",
+        "category",
+        "brand",
+        "model",
         "variant",
-        "source_ts"
-      ]
+        "condition",
+        "price_minor",
+        "currency",
+        "shipping",
+        "source_ts",
+        "fetched_at",
+        "update_model",
+        "availability",
+        "country",
+        "url",
+        "gtin",
+        "mpn",
+        "promo_starts_at",
+        "promo_valid_until",
+        "list_price_minor",
+        "verified_discount_minor",
+        "redirect_url"
+      ],
+      "revoked_fields": []
     },
     {
       "source_id": "shop-b",
@@ -25,11 +44,30 @@
       "breaker_state": "closed",
       "dead_letter_count": 0,
       "field_permissions": [
-        "price_minor",
-        "shipping",
+        "merchant",
+        "category",
+        "brand",
+        "model",
         "variant",
-        "source_ts"
-      ]
+        "condition",
+        "price_minor",
+        "currency",
+        "shipping",
+        "source_ts",
+        "fetched_at",
+        "update_model",
+        "availability",
+        "country",
+        "url",
+        "gtin",
+        "mpn",
+        "promo_starts_at",
+        "promo_valid_until",
+        "list_price_minor",
+        "verified_discount_minor",
+        "redirect_url"
+      ],
+      "revoked_fields": []
     },
     {
       "source_id": "shop-c",
@@ -40,11 +78,30 @@
       "breaker_state": "closed",
       "dead_letter_count": 0,
       "field_permissions": [
-        "price_minor",
-        "shipping",
+        "merchant",
+        "category",
+        "brand",
+        "model",
         "variant",
-        "source_ts"
-      ]
+        "condition",
+        "price_minor",
+        "currency",
+        "shipping",
+        "source_ts",
+        "fetched_at",
+        "update_model",
+        "availability",
+        "country",
+        "url",
+        "gtin",
+        "mpn",
+        "promo_starts_at",
+        "promo_valid_until",
+        "list_price_minor",
+        "verified_discount_minor",
+        "redirect_url"
+      ],
+      "revoked_fields": []
     },
     {
       "source_id": "shop-unapproved",
@@ -55,21 +112,64 @@
       "breaker_state": "closed",
       "dead_letter_count": 2,
       "field_permissions": [
-        "price_minor"
-      ]
+        "merchant",
+        "category",
+        "brand",
+        "model",
+        "variant",
+        "condition",
+        "price_minor",
+        "currency",
+        "shipping",
+        "source_ts",
+        "fetched_at",
+        "update_model",
+        "availability",
+        "country",
+        "url",
+        "gtin",
+        "mpn",
+        "promo_starts_at",
+        "promo_valid_until",
+        "list_price_minor",
+        "verified_discount_minor",
+        "redirect_url"
+      ],
+      "revoked_fields": []
     },
     {
       "source_id": "shop-breaker",
-      "domain": "breaker.example",
+      "domain": "shop-breaker.example",
       "approved": true,
       "reliability": 40,
       "retention_days": 7,
       "breaker_state": "open",
       "dead_letter_count": 4,
       "field_permissions": [
+        "merchant",
+        "category",
+        "brand",
+        "model",
+        "variant",
+        "condition",
         "price_minor",
-        "variant"
-      ]
+        "currency",
+        "shipping",
+        "source_ts",
+        "fetched_at",
+        "update_model",
+        "availability",
+        "country",
+        "url",
+        "gtin",
+        "mpn",
+        "promo_starts_at",
+        "promo_valid_until",
+        "list_price_minor",
+        "verified_discount_minor",
+        "redirect_url"
+      ],
+      "revoked_fields": []
     }
   ],
   "offers": [

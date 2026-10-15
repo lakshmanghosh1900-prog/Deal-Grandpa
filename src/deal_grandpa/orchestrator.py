@@ -23,6 +23,7 @@ from deal_grandpa.domain.models import (
 )
 from deal_grandpa.domain.policy import (
     RULESET_VERSION,
+    _integrity_gate,
     _initial_gates,
     choose_cohort,
     cluster_statistics,
@@ -61,18 +62,20 @@ class DealGrandpaService:
                 "breaker_state": source.breaker_state,
                 "dead_letter_count": source.dead_letter_count,
                 "field_permissions": list(source.field_permissions),
+                "revoked_fields": list(source.revoked_fields),
             }
             for source in sources
         ]
 
     @staticmethod
     def _deduplicate(offers: tuple[Offer, ...]) -> tuple[Offer, ...]:
-        by_fingerprint: dict[tuple[str, str, int, int | None], Offer] = {}
+        by_fingerprint: dict[tuple[str, str, str, int, int | None], Offer] = {}
         for offer in offers:
             cost = offer.effective_cost()
             key = (
                 offer.source.source_id,
                 cohort_key(offer.variant),
+                offer.condition,
                 offer.price.to_minor(),
                 cost.to_minor() if cost else None,
             )
@@ -126,17 +129,15 @@ class DealGrandpaService:
             offer for offer in offers
             if variant_matches_query(offer, query)
             and offer.condition == query.condition
-            and offer.source.approved
-            and offer.source.breaker_state == "closed"
-            and offer.availability == "in_stock"
             and all(g.status is GateStatus.PASS for g in _initial_gates(offer, query, current))
+            and _integrity_gate(offer, query).status is GateStatus.PASS
         )
         all_stats = cluster_statistics(stat_offers)
         self.store.update_state(run_id, "ANOMALY")
-        selected_stats = all_stats.get(selected) if selected else None
-        source_sets: dict[str, set[str]] = defaultdict(set)
+        selected_stats = all_stats.get((selected, query.condition)) if selected else None
+        source_sets: dict[tuple[str, str], set[str]] = defaultdict(set)
         for offer in stat_offers:
-            source_sets[cohort_key(offer.variant)].add(offer.source.source_id)
+            source_sets[(cohort_key(offer.variant), offer.condition)].add(offer.source.source_id)
         cohort_sources = {key: len(value) for key, value in source_sets.items()}
         evaluations = tuple(
             evaluate_offer(
@@ -144,8 +145,8 @@ class DealGrandpaService:
                 query,
                 current,
                 selected,
-                all_stats.get(cohort_key(offer.variant)),
-                cohort_sources.get(cohort_key(offer.variant), 0),
+                all_stats.get((cohort_key(offer.variant), offer.condition)),
+                cohort_sources.get((cohort_key(offer.variant), offer.condition), 0),
                 run_id,
                 rules_hash,
             )

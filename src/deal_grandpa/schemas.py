@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator, model_validator
+
+KNOWN_PERMISSION_FIELDS = frozenset({
+    "merchant", "title", "category", "brand", "model", "variant", "condition",
+    "price_minor", "currency", "shipping", "list_price_minor", "verified_discount_minor",
+    "promo_starts_at", "promo_valid_until", "source_ts", "fetched_at", "update_model",
+    "availability", "gtin", "mpn", "country", "url", "redirect_url", "source_record_id",
+})
 
 
 class StrictSchema(BaseModel):
@@ -42,6 +49,23 @@ class SourceInput(StrictSchema):
     breaker_state: Literal["closed", "open", "half_open"] = "closed"
     dead_letter_count: StrictInt = Field(default=0, ge=0)
     field_permissions: list[StrictStr] = Field(default_factory=list)
+    revoked_fields: list[StrictStr] = Field(default_factory=list)
+
+    @field_validator("field_permissions", "revoked_fields")
+    @classmethod
+    def permission_fields_are_known(cls, value: list[StrictStr]):
+        if len(value) != len(set(value)):
+            raise ValueError("permission fields must be unique")
+        unknown = set(value) - KNOWN_PERMISSION_FIELDS
+        if unknown:
+            raise ValueError("unknown permission field")
+        return value
+
+    @model_validator(mode="after")
+    def permissions_are_disjoint(self):
+        if set(self.field_permissions) & set(self.revoked_fields):
+            raise ValueError("a field cannot be both permitted and revoked")
+        return self
 
 
 class OfferInput(StrictSchema):

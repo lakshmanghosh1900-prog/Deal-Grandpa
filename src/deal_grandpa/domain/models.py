@@ -27,6 +27,12 @@ class RecoveryAction(str, Enum):
     NOTIFY = "notify"
 
 
+class PermissionState(str, Enum):
+    ALLOWED = "allowed"
+    DENIED = "denied"
+    REVOKED = "revoked"
+
+
 _MINOR_UNITS = {"INR": 2, "USD": 2, "EUR": 2, "GBP": 2, "JPY": 0}
 
 
@@ -128,6 +134,14 @@ class SourceInfo:
     breaker_state: str = "closed"
     dead_letter_count: int = 0
     field_permissions: tuple[str, ...] = ()
+    revoked_fields: tuple[str, ...] = ()
+
+    def permission_state(self, field: str) -> PermissionState:
+        if field in self.revoked_fields:
+            return PermissionState.REVOKED
+        if field in self.field_permissions:
+            return PermissionState.ALLOWED
+        return PermissionState.DENIED
 
 
 @dataclass(frozen=True)
@@ -156,6 +170,7 @@ class Offer:
     country: str
     redirect_url: str | None
     source_record_id: str
+    permission_failures: tuple[tuple[str, PermissionState], ...] = ()
 
     def effective_cost(self) -> Money | None:
         if self.shipping_status != "known" or self.shipping is None:
@@ -220,6 +235,7 @@ class ClusterStats:
     count: int
     median_minor: int | None
     mad_minor: int | None
+    condition: str = "new"
 
 
 @dataclass(frozen=True)

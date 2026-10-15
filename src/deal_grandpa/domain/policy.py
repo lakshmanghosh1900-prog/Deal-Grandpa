@@ -5,6 +5,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Iterable
+from urllib.parse import urlsplit
 
 from .models import (
     ClusterStats,
@@ -14,14 +15,32 @@ from .models import (
     Money,
     Offer,
     OfferEvaluation,
+    PermissionState,
     SearchQuery,
     SourceInfo,
     Variant,
 )
 
 RULESET_VERSION = "dg-0.1-gates-1-7"
+REVIEW_VERSION = "dg-review-0"
 MAX_ANOMALY_Z = Decimal("3.5")
 ANOMALY_FACTOR = Decimal("0.6745")
+REQUIRED_PERMISSION_FIELDS = (
+    "variant", "condition", "price_minor", "currency", "shipping", "source_ts",
+    "fetched_at", "availability", "country", "url", "merchant", "mpn",
+)
+
+
+def policy_manifest() -> dict[str, object]:
+    return {
+        "policy_version": RULESET_VERSION,
+        "review_version": REVIEW_VERSION,
+        "max_anomaly_z": str(MAX_ANOMALY_Z),
+        "anomaly_factor": str(ANOMALY_FACTOR),
+        "freshness_hours": {"hourly": "6", "daily": "24", "weekly": "168", "push_realtime": "0.25"},
+        "trust_weights": [35, 20, 15, 10, 20],
+        "gate_order": ["G1", "G2", "G3", "G4", "G5", "G6", "G7"],
+    }
 
 
 def normalize_text(value: str) -> str:
@@ -124,6 +143,33 @@ def valid_gtin(value: str | None) -> bool:
     return (10 - (total % 10)) % 10 == check
 
 
+def normalize_hostname(hostname: str | None) -> str | None:
+    if not hostname:
+        return None
+    value = hostname.rstrip(".").casefold()
+    try:
+        return value.encode("idna").decode("ascii")
+    except UnicodeError:
+        return None
+
+
+def validate_https_url(url: str, approved_domain: str) -> tuple[bool, str]:
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        return False, "INVALID_MERCHANT_URL"
+    if parsed.scheme.casefold() != "https" or not parsed.hostname:
+        return False, "INVALID_MERCHANT_URL"
+    if "@" in parsed.netloc:
+        return False, "INVALID_MERCHANT_URL"
+    if port not in (None, 443):
+        return False, "INVALID_MERCHANT_URL"
+    if normalize_hostname(parsed.hostname) != normalize_hostname(approved_domain):
+        return False, "URL_DOMAIN_MISMATCH"
+    return True, "URL_VALID"
+
+
 def variant_matches_query(offer: Offer, query: SearchQuery) -> bool:
     variant = offer.variant
     if query.category and variant.category != normalize_text(query.category):
@@ -155,23 +201,24 @@ def median(values: list[int]) -> int:
     return (ordered[middle - 1] + ordered[middle]) // 2
 
 
-def cluster_statistics(offers: Iterable[Offer]) -> dict[str, ClusterStats]:
-    values: dict[str, list[int]] = defaultdict(list)
-    seen: set[tuple[str, str, int]] = set()
+def cluster_statistics(offers: Iterable[Offer]) -> dict[tuple[str, str], ClusterStats]:
+    values: dict[tuple[str, str], list[int]] = defaultdict(list)
+    seen: set[tuple[str, str, str, int]] = set()
     for offer in offers:
         cost = offer.effective_cost()
         if cost is None:
             continue
-        fingerprint = (offer.source.source_id, cohort_key(offer.variant), cost.to_minor())
+        lane = (cohort_key(offer.variant), offer.condition)
+        fingerprint = (offer.source.source_id, lane[0], lane[1], cost.to_minor())
         if fingerprint in seen:
             continue
         seen.add(fingerprint)
-        values[cohort_key(offer.variant)].append(cost.to_minor())
-    result: dict[str, ClusterStats] = {}
-    for cohort, costs in values.items():
+        values[lane].append(cost.to_minor())
+    result: dict[tuple[str, str], ClusterStats] = {}
+    for (cohort, condition), costs in values.items():
         med = median(costs)
         deviations = [abs(cost - med) for cost in costs]
-        result[cohort] = ClusterStats(cohort, len(costs), med, median(deviations))
+        result[(cohort, condition)] = ClusterStats(cohort, len(costs), med, median(deviations), condition)
     return result
 
 
@@ -188,12 +235,28 @@ def _gate(gate: str, status: GateStatus, reason: str, detail: str) -> GateResult
 
 
 def _initial_gates(offer: Offer, query: SearchQuery, now: datetime) -> tuple[GateResult, ...]:
-    variant_ok = variant_matches_query(offer, query) and offer.condition == query.condition
+    permission_failures = offer.permission_failures
+    if any(state is PermissionState.REVOKED for _, state in permission_failures):
+        permission_reason = "PERMISSION_REVOKED"
+    elif permission_failures:
+        permission_reason = "PERMISSION_DENIED"
+    else:
+        permission_reason = None
+    variant_ok = variant_matches_query(offer, query)
+    exact_lane = variant_ok and offer.condition == query.condition
+    if permission_reason:
+        g1_status = GateStatus.FAIL
+        g1_reason = permission_reason
+        g1_detail = "A required source field is not available for this decision"
+    else:
+        g1_status = GateStatus.PASS if exact_lane else GateStatus.FAIL
+        g1_reason = "EXACT_VARIANT" if exact_lane else ("VARIANT_MISMATCH" if not variant_ok else "CONDITION_LANE_MISMATCH")
+        g1_detail = "All requested variant attributes match" if exact_lane else ("The product or one requested attribute differs" if not variant_ok else "The offer is in a different condition lane")
     g1 = _gate(
         "G1",
-        GateStatus.PASS if variant_ok else GateStatus.FAIL,
-        "EXACT_VARIANT" if variant_ok else "VARIANT_MISMATCH",
-        "All requested variant attributes match" if variant_ok else "The product or one requested attribute differs",
+        g1_status,
+        g1_reason,
+        g1_detail,
     )
     identity_ok = valid_gtin(offer.gtin) and bool(offer.variant.brand and offer.variant.model)
     g2 = _gate(
@@ -206,7 +269,10 @@ def _initial_gates(offer: Offer, query: SearchQuery, now: datetime) -> tuple[Gat
     if price_ok and query.budget:
         cost = offer.effective_cost()
         price_ok = cost is not None and cost.currency == query.budget.currency and cost <= query.budget
-    g3_reason = "PRICE_WITHIN_BUDGET" if price_ok else ("CURRENCY_MISMATCH" if query.budget and offer.price.currency != query.budget.currency else "OVER_BUDGET")
+    currency_mismatch = bool(query.budget and offer.price.currency != query.budget.currency)
+    if offer.shipping is not None and offer.shipping.currency != offer.price.currency:
+        currency_mismatch = True
+    g3_reason = "PRICE_WITHIN_BUDGET" if price_ok else ("CURRENCY_MISMATCH" if currency_mismatch else "OVER_BUDGET")
     g3 = _gate("G3", GateStatus.PASS if price_ok else GateStatus.FAIL, g3_reason, "Price is exact minor-unit money" if price_ok else "Price cannot be verified against the request")
 
     if offer.source_ts > now:
@@ -233,8 +299,13 @@ def _source_gate(offer: Offer, cohort_sources: int) -> GateResult:
 def _integrity_gate(offer: Offer, query: SearchQuery) -> GateResult:
     if not offer.source.approved:
         return _gate("G7", GateStatus.FAIL, "UNAPPROVED_DOMAIN", "Source is not in the approved registry")
-    if offer.redirect_url and normalize_text(offer.redirect_url) != normalize_text(offer.url):
-        return _gate("G7", GateStatus.FAIL, "REDIRECT_TRICK", "The source URL redirects to a different destination")
+    valid_url, url_reason = validate_https_url(offer.url, offer.source.domain)
+    if not valid_url:
+        return _gate("G7", GateStatus.FAIL, url_reason, "The merchant URL is not a safe approved HTTPS destination")
+    if offer.redirect_url:
+        redirect_valid, _ = validate_https_url(offer.redirect_url, offer.source.domain)
+        if not redirect_valid or normalize_text(offer.redirect_url) != normalize_text(offer.url):
+            return _gate("G7", GateStatus.FAIL, "REDIRECT_TRICK", "The source URL redirects to a different or unsafe destination")
     if offer.country != query.country:
         return _gate("G7", GateStatus.FAIL, "COUNTRY_RESTRICTED", "Offer country is outside the request country")
     if offer.availability != "in_stock":
@@ -315,7 +386,7 @@ def choose_cohort(offers: Iterable[Offer], query: SearchQuery, now: datetime) ->
         if not variant_matches_query(offer, query) or offer.condition != query.condition:
             continue
         basic = _initial_gates(offer, query, now)
-        if all(g.status is GateStatus.PASS for g in basic) and offer.source.approved and offer.source.breaker_state == "closed" and offer.availability == "in_stock":
+        if all(g.status is GateStatus.PASS for g in basic) and _integrity_gate(offer, query).status is GateStatus.PASS:
             grouped[cohort_key(offer.variant)].append(offer)
     candidates = [
         (cohort, items) for cohort, items in grouped.items()

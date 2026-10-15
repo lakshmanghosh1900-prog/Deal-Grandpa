@@ -7,7 +7,7 @@ def test_demo_recommends_only_one_exact_variant_with_full_gates(service):
     assert decision.outcome is Outcome.RECOMMEND
     assert decision.recommendation is not None
     assert len(decision.ranked) == 3
-    assert len(decision.excluded) == 173
+    assert len(decision.excluded) == 175
     assert len({item.offer.source.source_id for item in decision.ranked}) == len(decision.ranked)
     assert all(len(item.gates) == 7 for item in decision.ranked)
     assert all(g.status.value == "PASS" for item in decision.ranked for g in item.gates)
