@@ -101,6 +101,7 @@ def test_https_url_validation_is_exact_and_offline():
     assert validate_https_url("https://shop-a.example:443/offers/1", "shop-a.example")[0]
     assert not validate_https_url("http://shop-a.example/offers/1", "shop-a.example")[0]
     assert not validate_https_url("https://mirror.shop-a.example/offers/1", "shop-a.example")[0]
+    assert not validate_https_url("https://shop-a.example:8443/offers/1", "shop-a.example")[0]
 
 
 def test_active_genuine_discount_is_not_counted_twice(tmp_path):
@@ -132,3 +133,10 @@ def test_no_suitable_offer_abstains(tmp_path):
     assert decision.outcome is Outcome.ABSTAIN
     assert decision.recommendation is None
     assert not decision.ranked
+
+
+def test_unknown_fees_are_not_budget_verified(tmp_path):
+    _, decision = _run(tmp_path, lambda payload: next(item for item in payload["offers"] if item["offer_id"] == "offer-0001").update(fees={"status": "unknown", "amount_minor": 0}))
+    item = _offer(decision, "offer-0001")
+    assert item.effective_cost is None
+    assert any(g.reason_code == "UNKNOWN_FEES" for g in item.gates)

@@ -111,7 +111,7 @@ Replay reads the saved input snapshot and never fetches. It returns `MATCH`, `MI
 | G1 | Permissions, exact product and variant cohort | `PERMISSION_DENIED`, `PERMISSION_REVOKED`, `VARIANT_MISMATCH`, `CONDITION_LANE_MISMATCH`, `DIFFERENT_COHORT` |
 | G2 | Identity and input integrity | `INVALID_GTIN`, `IDENTITY_CHECKED` |
 | G3 | Exact money, currency, and budget | `CURRENCY_MISMATCH`, `OVER_BUDGET` |
-| G4 | Source freshness, promotion window, known shipping | `STALE_SOURCE_TIMESTAMP`, `FUTURE_SOURCE_TIMESTAMP`, `PROMO_EXPIRED`, `SHIPPING_UNKNOWN` |
+| G4 | Source freshness, promotion window, known shipping and fees | `STALE_SOURCE_TIMESTAMP`, `FUTURE_SOURCE_TIMESTAMP`, `PROMO_EXPIRED`, `SHIPPING_UNKNOWN`, `UNKNOWN_FEES` |
 | G5 | Median/MAD anomaly check | `ANOMALY_MODIFIED_Z`, `INSUFFICIENT_ANOMALY_SAMPLE` |
 | G6 | Two independent source IDs | `INSUFFICIENT_INDEPENDENT_SOURCES` |
 | G7 | Approved source, exact HTTPS destination, stock, country, new condition, breaker | `UNAPPROVED_DOMAIN`, `INVALID_MERCHANT_URL`, `URL_DOMAIN_MISMATCH`, `REDIRECT_TRICK`, `OUT_OF_STOCK`, `SOURCE_BREAKER_OPEN` |
@@ -141,7 +141,7 @@ Only these recovery actions are allowed: `retry`, `quarantine`, `expire`, `rollb
 
 ## Tests and golden metrics
 
-`make test` runs 37 unit/integration tests covering golden regression, JCS/reproducibility, strict schema security, permissions, condition lanes, URL safety, API smoke, replay/audit, retention, and fault injection. The following table is asserted by the CI test suite against `tests/fixtures/golden_offers.json`:
+`make test` runs 39 unit/integration tests covering golden regression, JCS/reproducibility, strict schema security, permissions, condition lanes, URL safety, API smoke, replay/audit, retention, cost breakdown, and fault injection. The following table is asserted by the CI test suite against `tests/fixtures/golden_offers.json`:
 
 | Metric | Expected |
 |---|---:|

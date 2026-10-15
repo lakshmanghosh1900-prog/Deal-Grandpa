@@ -73,6 +73,19 @@ def test_replay_fails_on_policy_version_change(tmp_path):
     assert service.replay(decision.run_id)["reason"] == "POLICY_VERSION_MISMATCH"
 
 
+def test_replay_fails_on_snapshot_hash_tampering(tmp_path):
+    from datetime import datetime, timezone
+    from deal_grandpa.orchestrator import DealGrandpaService
+
+    now = datetime(2026, 10, 16, 12, 0, tzinfo=timezone.utc)
+    store = SQLiteStore(tmp_path / "snapshot.sqlite3")
+    service = DealGrandpaService(store, "tests/fixtures/golden_offers.json", clock=lambda: now)
+    decision = service.run("I need a phone under 30000 with 8GB RAM 128GB storage", now=now)
+    store.connection.execute("UPDATE source_snapshots SET payload_json='{}' WHERE snapshot_id=(SELECT snapshot_id FROM runs WHERE run_id=?)", (decision.run_id,))
+    store.connection.commit()
+    assert service.replay(decision.run_id)["reason"] == "SNAPSHOT_HASH_MISMATCH"
+
+
 def test_prior_data_preserved_after_connector_failure(tmp_path):
     from datetime import datetime, timezone
     import json

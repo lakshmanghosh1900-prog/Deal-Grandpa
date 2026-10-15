@@ -78,7 +78,7 @@ Gates are evaluated before trust scoring and before ranking. Each card always co
 | G1 permissions and exact variant | Required fields are permitted, query fields and selected cohort match, and condition lane matches | `PERMISSION_DENIED`, `PERMISSION_REVOKED`, `VARIANT_MISMATCH`, `CONDITION_LANE_MISMATCH`, `DIFFERENT_COHORT` |
 | G2 identity | GTIN checksum valid when present; fallback identity exists | `INVALID_GTIN` |
 | G3 money | Decimal/minor-unit price, same currency, known total under budget | `CURRENCY_MISMATCH`, `OVER_BUDGET` |
-| G4 freshness | `source_ts` is not future or stale; promo active; shipping known | `STALE_SOURCE_TIMESTAMP`, `FUTURE_SOURCE_TIMESTAMP`, `PROMO_EXPIRED`, `PROMO_NOT_STARTED`, `SHIPPING_UNKNOWN` |
+| G4 freshness | `source_ts` is not future or stale; promo active; shipping and fees known | `STALE_SOURCE_TIMESTAMP`, `FUTURE_SOURCE_TIMESTAMP`, `PROMO_EXPIRED`, `PROMO_NOT_STARTED`, `SHIPPING_UNKNOWN`, `UNKNOWN_FEES` |
 | G5 anomaly | effective cost belongs to median/MAD peer cluster | `ANOMALY_MODIFIED_Z`, `INSUFFICIENT_ANOMALY_SAMPLE` |
 | G6 evidence | at least two distinct approved source IDs in the cohort | `INSUFFICIENT_INDEPENDENT_SOURCES` |
 | G7 trust boundary | approved source, exact HTTPS hostname, country, stock, new condition, closed breaker | `UNAPPROVED_DOMAIN`, `INVALID_MERCHANT_URL`, `URL_DOMAIN_MISMATCH`, `REDIRECT_TRICK`, `COUNTRY_RESTRICTED`, `OUT_OF_STOCK`, `SOURCE_BREAKER_OPEN` |

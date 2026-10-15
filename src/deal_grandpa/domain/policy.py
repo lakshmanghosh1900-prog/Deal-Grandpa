@@ -285,6 +285,8 @@ def _initial_gates(offer: Offer, query: SearchQuery, now: datetime) -> tuple[Gat
         g4 = _gate("G4", GateStatus.ABSTAIN, "PROMO_NOT_STARTED", "The promotional price has not started")
     elif offer.shipping_status != "known" or offer.shipping is None:
         g4 = _gate("G4", GateStatus.ABSTAIN, "SHIPPING_UNKNOWN", "Shipping is unknown, so the budget cannot be verified")
+    elif offer.fees_status != "known" or offer.fees is None:
+        g4 = _gate("G4", GateStatus.ABSTAIN, "UNKNOWN_FEES", "Fees are unknown, so the budget cannot be verified")
     else:
         g4 = _gate("G4", GateStatus.PASS, "FRESH_PRICE_AND_SHIPPING", "Source timestamp is fresh and shipping is known")
     return (g1, g2, g3, g4)
