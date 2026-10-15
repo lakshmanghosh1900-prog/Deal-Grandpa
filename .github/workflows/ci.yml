@@ -1,0 +1,21 @@
+name: deal-grandpa-ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.5.31"
+      - run: uv sync --extra test
+      - run: make test
+        env:
+          ADVISOR: none

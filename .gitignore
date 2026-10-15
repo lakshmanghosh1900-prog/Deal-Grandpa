@@ -5,6 +5,7 @@ __pycache__/
 .env
 var/*.db
 var/*.sqlite
+var/*.sqlite3
 var/*.json
 !var/.gitkeep
 *.egg-info/

@@ -1,4 +1,4 @@
-PYTHON ?= python3
+PYTHON ?= $(shell if test -x .venv/bin/python; then printf .venv/bin/python; else printf python3; fi)
 APP = deal-grandpa
 DB ?= var/deal_grandpa.sqlite3
 FIXTURE ?= tests/fixtures/golden_offers.json
