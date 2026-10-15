@@ -1,0 +1,14 @@
+services:
+  deal-grandpa:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DEAL_GRANDPA_DB: /app/var/deal_grandpa.sqlite3
+      DEAL_GRANDPA_FIXTURE: /app/tests/fixtures/golden_offers.json
+      DEAL_GRANDPA_ADVISOR: none
+    volumes:
+      - deal-grandpa-data:/app/var
+
+volumes:
+  deal-grandpa-data:
