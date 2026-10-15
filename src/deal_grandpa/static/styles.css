@@ -1,4 +1,3 @@
-@import url("data:text/css,");
 :root { color-scheme: light; --ink:#1f2933; --muted:#667085; --paper:#fffaf1; --card:#ffffff; --line:#e7dfd3; --green:#166534; --green-bg:#dcfce7; --amber:#92400e; --amber-bg:#fef3c7; --red:#991b1b; --red-bg:#fee2e2; --blue:#164e63; }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--paper); color:var(--ink); font-family: Georgia, 'Times New Roman', serif; }
