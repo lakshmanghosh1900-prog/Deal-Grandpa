@@ -8,9 +8,10 @@ from typing import Any
 from deal_grandpa.domain.models import Money, Offer, PermissionState, SourceInfo, Variant
 from deal_grandpa.domain.policy import REQUIRED_PERMISSION_FIELDS, normalized_variant, parse_timestamp
 from deal_grandpa.schemas import FixtureInput
+from .contracts import SourceAdapterError
 
 
-class SourceError(RuntimeError):
+class SourceError(SourceAdapterError):
     """Connector failure that is eligible for the narrow retry policy."""
 
 
@@ -23,6 +24,7 @@ class LoadedFixture:
 
 
 class FixtureSource:
+    name = "fixture"
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self._timeout_used = False

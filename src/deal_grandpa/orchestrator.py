@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from deal_grandpa.adapters.fixture_source import FixtureSource, LoadedFixture, SourceError
+from deal_grandpa.adapters.contracts import SourceAdapter, SourceAdapterError
 from deal_grandpa.adapters.sqlite import SQLiteStore
 from dataclasses import replace
 
@@ -48,10 +49,12 @@ class DealGrandpaService:
         store: SQLiteStore,
         fixture_path: str,
         clock: Callable[[], datetime] | None = None,
+        source_adapter: SourceAdapter | None = None,
     ):
         self.store = store
         self.fixture_path = fixture_path
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.source_adapter = source_adapter
         self.fault_mode: str | None = None
 
     @staticmethod
@@ -94,19 +97,23 @@ class DealGrandpaService:
         return tuple(sorted(by_fingerprint.values(), key=lambda item: item.offer_id))
 
     def _load_with_recovery(self, run_id: str, actor: str) -> tuple[LoadedFixture, tuple[str, ...]]:
-        source = FixtureSource(self.fixture_path)
+        source = self.source_adapter or FixtureSource(self.fixture_path)
         recovered: list[str] = []
         try:
             loaded = source.load(self.fault_mode)
-        except SourceError as error:
+        except SourceAdapterError as error:
             self.store.append_audit(str(uuid.uuid4()), run_id, "SOURCE_RETRY", actor, {"action": "retry", "error": str(error)})
             recovered.append("retry")
             try:
                 loaded = source.load(self.fault_mode)
-            except SourceError as persistent:
+            except SourceAdapterError as persistent:
                 self.store.append_audit(str(uuid.uuid4()), run_id, "SOURCE_QUARANTINE", actor, {"action": "quarantine", "error": str(persistent)})
                 recovered.append("quarantine")
-                # Load the immutable source snapshot without using the failed connector.
+                if self.source_adapter is not None:
+                    empty = {"fixture_id": f"quarantined-{run_id}", "sources": [], "offers": []}
+                    return LoadedFixture(f"quarantined-{run_id}", empty, tuple(), tuple()), tuple(recovered)
+                # The fixture adapter has an immutable local input to preserve;
+                # an injected future source must never fall back to fixture prices.
                 loaded = FixtureSource(self.fixture_path).load(None)
                 return LoadedFixture(loaded.fixture_id, loaded.raw_payload, loaded.sources, tuple()), tuple(recovered)
         return loaded, tuple(recovered)
