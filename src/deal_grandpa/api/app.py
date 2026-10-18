@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 from time import monotonic
@@ -10,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from deal_grandpa.adapters.sqlite import SQLiteStore
+from deal_grandpa.domain.policy import parse_timestamp
 from deal_grandpa.orchestrator import DealGrandpaService, decision_to_dict
 from deal_grandpa.schemas import FaultInput, QueryInput
 
@@ -19,7 +21,15 @@ STATIC = ROOT / "static"
 DB_PATH = os.getenv("DEAL_GRANDPA_DB", "var/deal_grandpa.sqlite3")
 FIXTURE_PATH = os.getenv("DEAL_GRANDPA_FIXTURE", "tests/fixtures/golden_offers.json")
 store = SQLiteStore(DB_PATH)
-service = DealGrandpaService(store, FIXTURE_PATH)
+
+
+def configured_now() -> datetime:
+    """Use the optional simulated fixture clock, otherwise use UTC now."""
+    value = os.getenv("DEAL_GRANDPA_NOW")
+    return parse_timestamp(value) if value else datetime.now(timezone.utc)
+
+
+service = DealGrandpaService(store, FIXTURE_PATH, clock=configured_now)
 app = FastAPI(title="Deal Grandpa", version="0.1.0")
 
 _RATE_LIMIT_WINDOW_SECONDS = 60.0
@@ -69,6 +79,21 @@ async def api_rate_limit(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+    )
+    if request.url.path.startswith("/api/"):
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
 @app.get("/", include_in_schema=False)
 def index():
     return FileResponse(STATIC / "index.html")
@@ -89,7 +114,12 @@ def fault_injection_enabled() -> bool:
 
 @app.get("/api/config")
 def config():
-    return {"mode": "FIXTURE", "fault_injection_enabled": fault_injection_enabled()}
+    return {
+        "mode": "FIXTURE",
+        "fault_injection_enabled": fault_injection_enabled(),
+        "fixture_reference_time": os.getenv("DEAL_GRANDPA_NOW"),
+        "rate_limit_per_minute": _rate_limit_per_minute(),
+    }
 
 
 @app.get("/api/health")

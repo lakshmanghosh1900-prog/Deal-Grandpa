@@ -1,5 +1,6 @@
 services:
   deal-grandpa:
+    image: deal-grandpa:demo
     build: .
     ports:
       - "8000:8000"
@@ -7,6 +8,7 @@ services:
       DEAL_GRANDPA_DB: /app/var/deal_grandpa.sqlite3
       DEAL_GRANDPA_FIXTURE: /app/tests/fixtures/golden_offers.json
       DEAL_GRANDPA_ADVISOR: none
+      DEAL_GRANDPA_NOW: ${DEAL_GRANDPA_NOW:-2026-10-16T12:00:00Z}
       DEAL_GRANDPA_ENABLE_FAULT_INJECTION: ${DEAL_GRANDPA_ENABLE_FAULT_INJECTION:-false}
       DEAL_GRANDPA_RATE_LIMIT_PER_MINUTE: ${DEAL_GRANDPA_RATE_LIMIT_PER_MINUTE:-120}
     volumes:

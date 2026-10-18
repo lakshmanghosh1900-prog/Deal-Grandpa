@@ -367,6 +367,10 @@ def evaluate_offer(
     evidence_numbers = [EvidenceNumber("price_minor", str(offer.price.to_minor()), stamp, fetched, rules_hash, run_id)]
     if offer.shipping is not None:
         evidence_numbers.append(EvidenceNumber("shipping_minor", str(offer.shipping.to_minor()), stamp, fetched, rules_hash, run_id))
+    if offer.fees is not None:
+        evidence_numbers.append(EvidenceNumber("fees_minor", str(offer.fees.to_minor()), stamp, fetched, rules_hash, run_id))
+    if offer.verified_discount is not None:
+        evidence_numbers.append(EvidenceNumber("verified_discount_minor", str(offer.verified_discount.to_minor()), stamp, fetched, rules_hash, run_id))
     if effective is not None:
         evidence_numbers.append(EvidenceNumber("effective_cost_minor", str(effective.to_minor()), stamp, fetched, rules_hash, run_id))
     numbers = tuple(evidence_numbers)

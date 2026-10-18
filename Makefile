@@ -2,6 +2,7 @@ PYTHON ?= $(shell if test -x .venv/bin/python; then printf .venv/bin/python; els
 APP = deal-grandpa
 DB ?= var/deal_grandpa.sqlite3
 FIXTURE ?= tests/fixtures/golden_offers.json
+IMAGE ?= deal-grandpa:demo
 
 .PHONY: test run api demo verify-log purge docker-up docker-test
 
@@ -27,4 +28,4 @@ docker-up:
 
 docker-test:
 	docker compose build
-	docker run --rm --network none -e ADVISOR=none -e DEAL_GRANDPA_DB=/tmp/deal-grandpa-test.sqlite3 -e DEAL_GRANDPA_FIXTURE=/app/tests/fixtures/golden_offers.json deal-grandpa-deal-grandpa:latest sh -c 'python tests/docker_network_probe.py && python -m pytest'
+	docker run --rm --network none -e ADVISOR=none -e DEAL_GRANDPA_NOW=2026-10-16T12:00:00Z -e DEAL_GRANDPA_DB=/tmp/deal-grandpa-test.sqlite3 -e DEAL_GRANDPA_FIXTURE=/app/tests/fixtures/golden_offers.json $(IMAGE) sh -c 'python tests/docker_network_probe.py && python -m pytest'

@@ -14,6 +14,8 @@ A customer enters a plain-language shopping request. Deal Grandpa turns it into 
 
 The UI outcome pills are `RECOMMEND`, `WITH_CAVEATS`, and `ABSTAIN`. They are not confidence theater. A recommendation object is `null` for every abstention.
 
+The current fixture orchestrator emits `RECOMMEND` or `ABSTAIN`; `WITH_CAVEATS` remains a reserved contract value and is not an active result path until its non-fatal caveat semantics are separately specified and tested.
+
 The first supported request is a phone with a budget, RAM, and storage constraint. Query parsing is deliberately conservative: unknown attributes are not invented.
 
 ## 2. Hexagonal architecture
