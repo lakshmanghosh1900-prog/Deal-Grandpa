@@ -7,7 +7,7 @@ COPY .python-version Dockerfile ./
 COPY .github ./.github
 COPY src ./src
 COPY tests ./tests
-COPY Makefile ./
+COPY Makefile docker-compose.yml ./
 RUN python -m pip install --no-cache-dir --upgrade pip==24.3.1 uv==0.5.31 && uv sync --locked --extra test
 ENV PATH="/app/.venv/bin:$PATH"
 RUN mkdir -p /app/var
