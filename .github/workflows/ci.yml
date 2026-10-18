@@ -17,6 +17,11 @@ jobs:
           version: "0.5.31"
       - run: uv sync --locked --extra test
       - run: python -c "import sys; assert sys.version_info[:3] == (3, 12, 11), sys.version"
+      - run: python -m compileall -q src tests
       - run: make test
         env:
           ADVISOR: none
+      - run: DEAL_GRANDPA_NOW=2026-10-16T12:00:00Z make run
+      - run: make verify-log
+      - run: git diff --check
+      - run: make docker-test

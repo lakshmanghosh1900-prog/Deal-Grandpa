@@ -52,8 +52,8 @@ class FeesInput(StrictSchema):
 
 
 class SourceInput(StrictSchema):
-    source_id: StrictStr
-    domain: StrictStr
+    source_id: StrictStr = Field(min_length=1, max_length=200)
+    domain: StrictStr = Field(min_length=1, max_length=253)
     approved: StrictBool
     reliability: StrictInt = Field(ge=0, le=100)
     retention_days: StrictInt = Field(ge=1, le=3650)

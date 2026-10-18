@@ -38,6 +38,7 @@ src/deal_grandpa/
   domain/canonical.py     RFC 8785 JCS bytes and SHA-256
   schemas.py              strict Pydantic v2 boundary models
   adapters/fixture_source.py  JSON fixture connector and normalization adapter
+  adapters/contracts.py       SourceAdapter contract for future approved sources
   adapters/sqlite.py      SQLite schema, snapshots, runs, audit chain, retention
   orchestrator.py         idempotent run state machine, replay, evidence cards
   cli.py                  Typer commands
@@ -60,6 +61,13 @@ Normalization trims, collapses whitespace, and uses Unicode case folding. Reques
 
 The system clusters first. It selects one corroborated cohort for the request and ranks only offers in that cohort. Different products are not mixed into H1 ranking. Product-level recommendation selection remains separate from merchant ranking; if the system cannot establish a single verified cohort, it returns no recommendation.
 
+The committed fixture has 180 raw observations. Condition-aware `_deduplicate`
+retains 178: `offer-0001`, `offer-0011`, and `offer-0012` share one duplicate
+fingerprint, so `offer-0001` is retained and the other two are removed. The fixed
+clock then produces 3 verified ranked offers and 175 excluded evaluations. These
+are post-deduplication counts; no fixture records are removed to make the totals
+look consistent.
+
 ### Identity tiers
 
 1. Tier 1: validate GTIN length, digits, and checksum when a GTIN is supplied.
@@ -68,6 +76,17 @@ The system clusters first. It selects one corroborated cohort for the request an
 4. Tier 4: an advisor/AI hint can only create `NEEDS_REVIEW`; it cannot pass an identity gate.
 
 Two offers from one source cannot corroborate each other. Retries, mirror URLs, and source-owned record IDs do not create independent evidence. Source identity is the registry `source_id`.
+
+### Source adapter contract
+
+`adapters/contracts.py` defines `SourceAdapter`: an adapter has a stable name and
+returns a validated `LoadedFixture` containing normalized offers plus `SourceInfo`
+metadata. The existing fixture adapter is the default and only configured source.
+The orchestrator accepts an injected adapter for deterministic contract tests, but
+does not make network requests or fall back from an injected source failure to
+fixture prices. A failure follows the existing retry/quarantine allowlist and ends
+in abstention. Future live sources require separate approval for endpoint, access,
+permissions, retention, and merchant domains.
 
 ## 4. Gate policy
 
@@ -166,12 +185,15 @@ A one-time timeout retries idempotently and produces the same verified result. A
 
 ## 10. Golden dataset and quality gates
 
-`tests/fixtures/golden_offers.json` contains 180 offers and five registry entries. The default fixed-clock run has three verified ranked peers and 175 excluded observations after condition-aware normalization. The test suite asserts:
+`tests/fixtures/golden_offers.json` contains 180 raw offers, 178 after
+condition-aware `_deduplicate`, one duplicate fingerprint group, three verified
+ranked peers, and 175 excluded evaluations. The test suite asserts:
 
 - exact variant only in the ranked lane;
 - near-miss 128/256, 5G/4G, and pack 1/2 rejection;
 - invalid GTIN, stale, future, 100x, duplicate, unapproved, redirect, country, stock, promotion, shipping, and currency handling;
 - permission denied/revoked, condition-lane separation, exact HTTPS URL validation, and non-clickable fixture links;
+- raw/deduplicated fixture accounting and the source-adapter contract;
 - no source may corroborate itself;
 - Decimal money arithmetic and strict Pydantic;
 - median/MAD including zero MAD;

@@ -24,6 +24,16 @@ This repository is a reproducible buildathon implementation: Python 3.12.11, Fas
 - Field permissions and explicit revoked fields are enforced in G1. Denied offers are excluded with `PERMISSION_DENIED` or `PERMISSION_REVOKED`; restricted values are not normalized into snapshots, result cards, or audit payloads. `make purge` runs the daily raw-payload deletion workflow while retaining decisions and hashes.
 - Merchant destinations must be HTTPS on the exact approved hostname, with no userinfo or non-443 port. Redirect targets are independently checked. Fixture URLs remain non-clickable and are never rendered as anchors.
 
+### Fixture accounting
+
+The committed fixture contains **180 raw observations**. The existing condition-aware
+deduplication step retains **178 observations**: the only duplicate fingerprint group
+is `offer-0001`, `offer-0011`, and `offer-0012`; `offer-0001` is retained and the
+other two observations are removed. The fixed-clock demo then ranks **3 verified
+offers** and reports **175 excluded evaluations** (`178 = 3 + 175`). Ranked and
+excluded counts therefore describe post-deduplication observations, not all 180 raw
+records. The fixture records are not deleted to manufacture these totals.
+
 ## Quick start
 
 The commands below assume a clean Linux machine with Python 3.12.11 and `uv`. The lockfile is `uv.lock`; dependencies stay inside `.venv`. No credentials are needed for **FIXTURE** mode.
@@ -89,6 +99,16 @@ Endpoints:
 
 No endpoint claims a market-wide best price from one observation; one offer is never presented as market-wide evidence.
 
+### Source-adapter boundary
+
+`src/deal_grandpa/adapters/contracts.py` defines the minimal `SourceAdapter`
+contract. An approved adapter must return a validated `LoadedFixture` containing
+normalized offers and `SourceInfo` registry metadata. The fixture adapter is the
+only configured source in this stage. Schema errors and source failures are not
+turned into prices; a failed injected adapter retries/quarantines and produces an
+abstention without falling back to fixture data. Future live connectors require a
+separately approved source, permissions, and network scope.
+
 ## Decision contract
 
 The decision state machine is persisted by `run_id`: `SNAPSHOT → NORMALIZE → GATES → ANOMALY → RANK → EXPLAIN → AUDIT`. Repeating a step is idempotent for a run. Replay reconstructs the normalized fixture from the saved snapshot and does not read the current fixture path. It verifies the stored policy version, review version, rules hash, payload hash, and registry snapshot before evaluating. The replay bundle contains:
@@ -141,11 +161,13 @@ Only these recovery actions are allowed: `retry`, `quarantine`, `expire`, `rollb
 
 ## Tests and golden metrics
 
-`make test` runs 39 unit/integration tests covering golden regression, JCS/reproducibility, strict schema security, permissions, condition lanes, URL safety, API smoke, replay/audit, retention, cost breakdown, and fault injection. The following table is asserted by the CI test suite against `tests/fixtures/golden_offers.json`:
+`make test` runs 47 unit/integration tests covering golden regression, JCS/reproducibility, strict schema security, permissions, condition lanes, URL safety, API smoke, replay/audit, retention, cost breakdown, source-adapter contracts, and fault injection. The following table is asserted by the CI test suite against `tests/fixtures/golden_offers.json`:
 
 | Metric | Expected |
 |---|---:|
-| Fixture offers | 180 |
+| Raw fixture observations | 180 |
+| After `_deduplicate` | 178 |
+| Duplicate fingerprint group | `offer-0001`, `offer-0011`, `offer-0012` |
 | Verified exact-variant ranked peers | 3 |
 | Excluded observations after source/condition normalization | 175 |
 | Ranked offers with a variant mismatch | 0 |
