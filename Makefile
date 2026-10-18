@@ -26,4 +26,5 @@ docker-up:
 	docker compose up --build
 
 docker-test:
-	set +e; docker compose up --build -d; status=$$?; if test $$status -eq 0; then docker compose run --rm -e ADVISOR=none deal-grandpa python -m pytest; status=$$?; fi; docker compose down; exit $$status
+	docker compose build
+	docker run --rm --network none -e ADVISOR=none -e DEAL_GRANDPA_DB=/tmp/deal-grandpa-test.sqlite3 -e DEAL_GRANDPA_FIXTURE=/app/tests/fixtures/golden_offers.json deal-grandpa-deal-grandpa:latest sh -c 'python tests/docker_network_probe.py && python -m pytest'

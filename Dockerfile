@@ -3,6 +3,8 @@ FROM python:3.12.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
+COPY .python-version Dockerfile ./
+COPY .github ./.github
 COPY src ./src
 COPY tests ./tests
 COPY Makefile ./
