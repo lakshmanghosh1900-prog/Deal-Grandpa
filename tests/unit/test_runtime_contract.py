@@ -18,6 +18,20 @@ def test_docker_and_ci_use_locked_runtime():
     assert "python-version-file: .python-version" in ci
     assert "uv sync --locked" in ci
     assert "3, 12, 11" in ci
+    assert "PORT:-8000" in dockerfile
+
+
+def test_public_fixture_demo_contract_is_visible_and_safe():
+    page = Path("src/deal_grandpa/static/index.html").read_text()
+    compose = Path("docker-compose.yml").read_text()
+    readme = Path("README.md").read_text()
+    assert "FIXTURE DEMO" in page
+    assert "not clickable purchase links" in page
+    assert "How it works" in page
+    assert "Privacy and feedback" in page
+    assert "image: deal-grandpa:demo" in compose
+    assert "DEAL_GRANDPA_NOW" in compose
+    assert "not live shopping data" in readme
 
 
 def test_fixture_links_are_not_rendered_as_clickable_anchors():
@@ -26,3 +40,5 @@ def test_fixture_links_are_not_rendered_as_clickable_anchors():
     assert "href=" not in javascript
     assert "<a " not in javascript
     assert "<a>" not in javascript
+    assert "The server returned an unexpected decision" in javascript
+    assert "could not reach its local API" in javascript

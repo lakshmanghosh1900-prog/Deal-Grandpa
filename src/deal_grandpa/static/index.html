@@ -12,6 +12,12 @@
       <p class="eyebrow">DEAL GRANDPA · FIXTURE</p>
       <h1>Let Grandpa check before you buy.</h1>
       <p class="lede">Same exact variant. Independent evidence. Plain advice. If the evidence is not strong enough, Grandpa will say so.</p>
+      <div class="notice warning" role="note">
+        <strong>FIXTURE DEMO — not live shopping data.</strong>
+        <p>This page uses committed sample records and does not fetch live retailer prices. Sample prices, merchants, availability, discounts and offers are not verified current marketplace information and must not be treated as a real-world purchase recommendation.</p>
+        <p>The packaged demo uses a simulated reference time, and it may correctly return <strong>No verified recommendation</strong>. Fixture merchant destinations are intentionally not clickable purchase links.</p>
+        <p><strong>“Deal Grandpa” is a provisional name; trademark clearance has not been established.</strong></p>
+      </div>
     </header>
     <section class="query-card">
       <label for="query">What do you need?</label>
@@ -23,6 +29,27 @@
       <p id="mode" class="muted">FIXTURE mode · ADVISOR=none · network calls: none</p>
     </section>
     <section id="result"><div class="empty">Grandpa is ready. Ask him to check a deal.</div></section>
+    <section class="info-grid" aria-label="Demo information">
+      <article class="info-card">
+        <h2>How it works</h2>
+        <ol>
+          <li>Write a plain-language request with a budget and exact variant details.</li>
+          <li>The deterministic engine checks the committed fixture records.</li>
+          <li>Only exact variants with independent evidence can be ranked.</li>
+          <li>Expand an Evidence Card to inspect cost, provenance and G1–G7 gates.</li>
+        </ol>
+      </article>
+      <article class="info-card">
+        <h2>Honest limits</h2>
+        <p>This prototype does not scrape retailers, verify current stock, convert currency, or claim market-wide coverage. A failed or stale observation never becomes a guessed recommendation.</p>
+        <p>There is no user authentication. The single-process rate limit is best-effort demo protection, not production abuse prevention.</p>
+      </article>
+      <article class="info-card">
+        <h2>Privacy and feedback</h2>
+        <p>Run queries, decisions and audit metadata are stored in the configured SQLite database so replay and verification can work. Do not enter personal, payment or secret information.</p>
+        <p><a href="https://github.com/lakshmanghosh1900-prog/Deal-Grandpa" target="_blank" rel="noreferrer">View the public GitHub repository and leave feedback</a>.</p>
+      </article>
+    </section>
   </main>
   <script src="/static/app.js"></script>
 </body>

@@ -306,7 +306,7 @@ def evidence_card(item: OfferEvaluation) -> dict[str, Any]:
         "effective_cost_display": None if restricted else format_money(item.effective_cost),
         "trust_score": item.trust_score,
         "gates": [gate_to_dict(gate) for gate in item.gates],
-        "numbers": [
+        "numbers": [] if restricted else [
             {"name": number.name, "value": number.value, "source_ts": number.source_ts, "fetched_at": number.fetched_at, "rules_hash": number.rules_hash, "run_id": number.run_id}
             for number in item.evidence_numbers
         ],

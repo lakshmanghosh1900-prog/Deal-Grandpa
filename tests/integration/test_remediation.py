@@ -6,7 +6,7 @@ from deal_grandpa.adapters.fixture_source import FixtureSource
 from deal_grandpa.adapters.sqlite import SQLiteStore
 from deal_grandpa.domain.models import Outcome
 from deal_grandpa.domain.policy import validate_https_url
-from deal_grandpa.orchestrator import DealGrandpaService
+from deal_grandpa.orchestrator import DealGrandpaService, decision_to_dict
 
 
 QUERY = "I need a phone under 30000 with 8GB RAM 128GB storage"
@@ -52,6 +52,9 @@ def test_permission_missing_field_excluded(tmp_path):
     assert "PERMISSION_SENTINEL" not in service.store.run(decision.run_id)["result_json"]
     audit_payloads = service.store.connection.execute("SELECT payload_json FROM audit_events").fetchall()
     assert all("PERMISSION_SENTINEL" not in row[0] for row in audit_payloads)
+    card = next(card for card in decision_to_dict(decision)["excluded"] if card["offer_id"] == "offer-0001")
+    assert card["price_minor"] is None
+    assert card["numbers"] == []
 
 
 def test_permission_revoked_excluded(tmp_path):
@@ -119,6 +122,8 @@ def test_active_genuine_discount_is_not_counted_twice(tmp_path):
     item = _offer(decision, "offer-0001")
     assert item.effective_cost.to_minor() == 2499900
     assert item.offer.verified_discount.to_minor() == 200000
+    card = next(card for card in decision_to_dict(decision)["ranked"] if card["offer_id"] == "offer-0001")
+    assert {number["name"] for number in card["numbers"]} >= {"fees_minor", "verified_discount_minor", "effective_cost_minor"}
 
 
 def test_currency_mismatch_reason(tmp_path):

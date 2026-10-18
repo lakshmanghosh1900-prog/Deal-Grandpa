@@ -2,6 +2,8 @@
 
 **Provisional name — trademark not cleared.**
 
+> **FIXTURE DEMO — not live shopping data.** This public-demo release uses committed sample records and does not currently fetch live retailer prices. Sample prices, merchants, availability, discounts and offers are not verified current marketplace information and must not be treated as a real-world purchase recommendation. The system may correctly return **No verified recommendation**. Fixture merchant destinations are intentionally not clickable purchase links. “Deal Grandpa” is a provisional name; trademark clearance has not been established.
+
 Deal Grandpa is an evidence-first shopping decision tool. A customer writes a plain request such as:
 
 > I need a phone under 30000 with 8GB RAM 128GB storage
@@ -84,7 +86,7 @@ deal-grandpa purge
 DEAL_GRANDPA_NOW=2026-10-16T12:00:00Z uvicorn deal_grandpa.api.app:app --host 0.0.0.0 --port 8000
 ```
 
-Open `http://localhost:8000`. The page is a single static UI labelled **FIXTURE**. It has a query bar, outcome pill (`RECOMMEND`, `WITH_CAVEATS`, or `ABSTAIN`), exact-variant ranked offers, effective-cost breakdown, expanded Evidence Cards with all G1–G7 reason codes, an excluded panel and source health. Developer-only fault controls are hidden by default and appear only when explicitly enabled.
+Open `http://localhost:8000`. The page is a single static UI labelled **FIXTURE**. It has a query bar, outcome pill (`RECOMMEND`, `WITH_CAVEATS`, or `ABSTAIN`), exact-variant ranked offers, effective-cost breakdown, expanded Evidence Cards with all G1–G7 reason codes, an excluded panel, source health, a How it works section, honest limitations, and a privacy/data notice. The current fixture orchestrator emits `RECOMMEND` or `ABSTAIN`; `WITH_CAVEATS` remains a reserved contract value and is not claimed as an active result path. Developer-only fault controls are hidden by default and appear only when explicitly enabled. The packaged demo clock is simulated (`2026-10-16T12:00:00Z`) so the committed sample can be replayed; it is not a current retailer timestamp.
 
 Endpoints:
 
@@ -97,6 +99,8 @@ Endpoints:
 - `GET /api/sources`
 - `POST /api/fault-injection` with `{"mode":"timeout_once"}`, `persistent_failure`, or `clear` (disabled unless `DEAL_GRANDPA_ENABLE_FAULT_INJECTION=true`; local development only)
 - `GET /api/verify-log`
+
+`GET /api/config` reports only non-secret demo settings: mode, fault-control state, the optional simulated fixture reference time, and the configured request limit. Fault injection is default-deny and returns `404` unless `DEAL_GRANDPA_ENABLE_FAULT_INJECTION=true` is explicitly set for local testing. The API has no authentication. Its in-process per-client limit is best-effort protection for this one-process demo; it does not replace trusted edge rate limiting or production abuse controls, and forwarded IP headers are not trusted.
 
 No endpoint claims a market-wide best price from one observation; one offer is never presented as market-wide evidence.
 
@@ -162,7 +166,7 @@ Only these recovery actions are allowed: `retry`, `quarantine`, `expire`, `rollb
 
 ## Tests and golden metrics
 
-`make test` runs 47 unit/integration tests covering golden regression, JCS/reproducibility, strict schema security, permissions, condition lanes, URL safety, API smoke, replay/audit, retention, cost breakdown, source-adapter contracts, and fault injection. The following table is asserted by the CI test suite against `tests/fixtures/golden_offers.json`:
+`make test` runs 53 unit/integration tests covering golden regression, JCS/reproducibility, strict schema security, permissions, condition lanes, URL safety, API smoke, replay/audit, retention, cost breakdown, source-adapter contracts, and fault injection. The following table is asserted by the CI test suite against `tests/fixtures/golden_offers.json`:
 
 | Metric | Expected |
 |---|---:|
@@ -184,7 +188,7 @@ Additional direct checks cover decimal addition (`0.10 + 0.20`), strict Pydantic
 
 ## Docker and deployment
 
-Docker installs the pinned runtime and test extra into the image, then starts Uvicorn. The compose file persists only the SQLite data volume:
+Docker installs the pinned runtime and test extra into the image, then starts Uvicorn. The compose file persists only the SQLite data volume and uses the simulated fixture clock by default. The container binds to `0.0.0.0` and accepts a hosting provider's `PORT` environment variable, with local default `8000`:
 
 ```bash
 docker compose up --build
@@ -198,4 +202,8 @@ The project does not include credentials or a network source connector. A produc
 
 ## Honest limitations
 
-This release is a safe **FIXTURE** prototype, not a production-ready claim or a claim of market coverage. It does not scrape retailers, perform currency conversion, infer missing attributes, or use an advisor model. The static source is intentionally limited so the recommendation can be replayed offline. Developer fault injection is disabled by default. The API includes a basic in-process per-client IP throttle (default 120 API requests per minute, configurable with `DEAL_GRANDPA_RATE_LIMIT_PER_MINUTE`) and fault injection is disabled by default. This is best-effort protection for the single-process demo only: do not treat it as production security. Before public internet launch, configure trusted edge-level rate limiting, review authentication/abuse controls, and confirm the hosting proxy's client-IP behavior. The app uses SQLite and is not approved for multi-worker production deployment. SQLite is suitable for a local/small deployment; a multi-worker hosted deployment would need a separately reviewed database adapter and stronger external audit controls. If Docker is unavailable, `make docker-test` must be reported as blocked rather than assumed to pass.
+This release is a safe **FIXTURE DEMO — PUBLIC** only when its actual deployed URL and smoke tests have been verified. It is not a production-ready shopping tool and does not claim market coverage. It does not scrape retailers, perform currency conversion, infer missing attributes, verify live stock, or use an advisor model. The committed sample information is not current marketplace information. The static source is intentionally limited so the recommendation can be replayed offline. Developer fault injection is disabled by default. The API includes a basic in-process per-client IP throttle (default 120 API requests per minute, configurable with `DEAL_GRANDPA_RATE_LIMIT_PER_MINUTE`) and does not implement authentication. This is best-effort protection for the single-process demo only. The app uses SQLite and is not approved for multi-worker production deployment. If Docker is unavailable, `make docker-test` must be reported as blocked rather than assumed to pass.
+
+## Privacy and public feedback
+
+Run queries, decision results, source health, and audit metadata are stored in the configured SQLite database so replay and verification can work. Do not enter personal data, payment details, credentials, or secrets into the demo. Feedback and source changes belong in the public repository: <https://github.com/lakshmanghosh1900-prog/Deal-Grandpa>.
