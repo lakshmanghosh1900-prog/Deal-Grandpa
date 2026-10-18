@@ -36,6 +36,9 @@ def test_evidence_endpoint_exposes_cost_breakdown(tmp_path, monkeypatch):
 
 def test_fault_injection_is_disabled_by_default(monkeypatch):
     monkeypatch.delenv("DEAL_GRANDPA_ENABLE_FAULT_INJECTION", raising=False)
+    # The Docker test uses a deterministic fixture clock globally; this test verifies
+    # the default config contract independently of that unrelated setting.
+    monkeypatch.delenv("DEAL_GRANDPA_NOW", raising=False)
     monkeypatch.setattr(app_module.service, "fault_mode", None)
     client = TestClient(app)
 
@@ -66,7 +69,6 @@ def test_fault_injection_requires_explicit_local_enable(monkeypatch):
     clear = client.post("/api/fault-injection", json={"mode": "clear"})
     assert clear.status_code == 200
     assert clear.json()["fault"] == "clear"
-
 
 
 def test_api_rate_limit_returns_429_with_retry_after(monkeypatch):
