@@ -23,6 +23,20 @@ async function fault(mode) {
   await fetch('/api/fault-injection', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({mode})});
   document.querySelector('#mode').textContent = `FIXTURE mode · fault ${mode} · network calls: none`;
 }
+async function configureDeveloperControls() {
+  const controls = document.querySelector('.buttons');
+  controls.hidden = true;
+  try {
+    const response = await fetch('/api/config');
+    if (!response.ok) return;
+    const config = await response.json();
+    controls.hidden = config.fault_injection_enabled !== true;
+  } catch {
+    controls.hidden = true;
+  }
+}
+
 document.querySelector('#check').addEventListener('click', check);
 document.querySelector('#break').addEventListener('click', () => fault('timeout_once'));
 document.querySelector('#clear').addEventListener('click', () => fault('clear'));
+configureDeveloperControls();

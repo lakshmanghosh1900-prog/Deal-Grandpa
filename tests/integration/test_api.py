@@ -30,3 +30,48 @@ def test_evidence_endpoint_exposes_cost_breakdown(tmp_path, monkeypatch):
     evidence = client.get(f"/api/runs/{run_id}/evidence")
     assert evidence.status_code == 200
     assert evidence.json()["recommendation"]["effective_total_minor"] == card["effective_total_minor"]
+
+
+def test_fault_injection_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("DEAL_GRANDPA_ENABLE_FAULT_INJECTION", raising=False)
+    monkeypatch.setattr(app_module.service, "fault_mode", None)
+    client = TestClient(app)
+
+    config = client.get("/api/config")
+    assert config.status_code == 200
+    assert config.json() == {"mode": "FIXTURE", "fault_injection_enabled": False}
+
+    response = client.post("/api/fault-injection", json={"mode": "timeout_once"})
+    assert response.status_code == 404
+    assert app_module.service.fault_mode is None
+
+
+def test_fault_injection_requires_explicit_local_enable(monkeypatch):
+    monkeypatch.setenv("DEAL_GRANDPA_ENABLE_FAULT_INJECTION", "true")
+    monkeypatch.setattr(app_module.service, "fault_mode", None)
+    client = TestClient(app)
+
+    assert client.get("/api/config").json()["fault_injection_enabled"] is True
+    response = client.post("/api/fault-injection", json={"mode": "timeout_once"})
+    assert response.status_code == 200
+    assert response.json()["fault"] == "timeout_once"
+
+    clear = client.post("/api/fault-injection", json={"mode": "clear"})
+    assert clear.status_code == 200
+    assert clear.json()["fault"] == "clear"
+
+
+
+def test_api_rate_limit_returns_429_with_retry_after(monkeypatch):
+    monkeypatch.setenv("DEAL_GRANDPA_RATE_LIMIT_PER_MINUTE", "2")
+    with app_module._rate_limit_lock:
+        app_module._rate_limit_hits.clear()
+
+    client = TestClient(app)
+    assert client.get("/api/health").status_code == 200
+    assert client.get("/api/health").status_code == 200
+
+    limited = client.get("/api/health")
+    assert limited.status_code == 429
+    assert int(limited.headers["Retry-After"]) >= 1
+    assert limited.json()["detail"] == "Rate limit exceeded. Please retry later."

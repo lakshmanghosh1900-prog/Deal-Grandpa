@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import os
+from collections import deque
 from pathlib import Path
+from threading import Lock
+from time import monotonic
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 
 from deal_grandpa.adapters.sqlite import SQLiteStore
 from deal_grandpa.orchestrator import DealGrandpaService, decision_to_dict
@@ -19,6 +22,52 @@ store = SQLiteStore(DB_PATH)
 service = DealGrandpaService(store, FIXTURE_PATH)
 app = FastAPI(title="Deal Grandpa", version="0.1.0")
 
+_RATE_LIMIT_WINDOW_SECONDS = 60.0
+_rate_limit_hits: dict[str, deque[float]] = {}
+_rate_limit_lock = Lock()
+
+
+def _rate_limit_per_minute() -> int:
+    """Return a bounded per-process API request limit."""
+    try:
+        configured = int(os.getenv("DEAL_GRANDPA_RATE_LIMIT_PER_MINUTE", "120"))
+    except ValueError:
+        configured = 120
+    return max(1, min(configured, 600))
+
+
+@app.middleware("http")
+async def api_rate_limit(request: Request, call_next):
+    """Best-effort per-client IP throttle for the single-process demo runtime.
+
+    Do not trust X-Forwarded-For here. Hosted deployments must also enforce
+    rate limits at their trusted edge/reverse proxy.
+    """
+    if not request.url.path.startswith("/api/"):
+        return await call_next(request)
+
+    client_key = request.client.host if request.client else "unknown"
+    now = monotonic()
+    cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
+    with _rate_limit_lock:
+        bucket = _rate_limit_hits.setdefault(client_key, deque())
+        while bucket and bucket[0] <= cutoff:
+            bucket.popleft()
+        if len(bucket) >= _rate_limit_per_minute():
+            retry_after = max(1, int(bucket[0] + _RATE_LIMIT_WINDOW_SECONDS - now))
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Rate limit exceeded. Please retry later."},
+                headers={"Retry-After": str(retry_after)},
+            )
+        bucket.append(now)
+
+        if len(_rate_limit_hits) > 2048:
+            for key in [key for key, values in _rate_limit_hits.items() if not values or values[-1] <= cutoff]:
+                _rate_limit_hits.pop(key, None)
+
+    return await call_next(request)
+
 
 @app.get("/", include_in_schema=False)
 def index():
@@ -31,6 +80,16 @@ def static_asset(asset: str):
     if not path.is_file() or path.parent != STATIC:
         raise HTTPException(status_code=404, detail="asset not found")
     return FileResponse(path)
+
+
+def fault_injection_enabled() -> bool:
+    """Fault controls are opt-in for local development, never on by default."""
+    return os.getenv("DEAL_GRANDPA_ENABLE_FAULT_INJECTION", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+@app.get("/api/config")
+def config():
+    return {"mode": "FIXTURE", "fault_injection_enabled": fault_injection_enabled()}
 
 
 @app.get("/api/health")
@@ -87,6 +146,8 @@ def sources():
 
 @app.post("/api/fault-injection")
 def fault_injection(request: FaultInput):
+    if not fault_injection_enabled():
+        raise HTTPException(status_code=404, detail="Fault injection is disabled.")
     service.fault_mode = None if request.mode == "clear" else request.mode
     return {"mode": "FIXTURE", "fault": service.fault_mode or "clear", "allowlist": ["retry", "quarantine", "expire", "rollback", "notify"]}
 

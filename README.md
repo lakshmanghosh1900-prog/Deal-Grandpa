@@ -20,7 +20,7 @@ This repository is a reproducible buildathon implementation: Python 3.12.11, Fas
 - Exact cohort ranking is separate from product selection. One ranking contains one exact new variant across independent merchants; different product cohorts are not mixed into H1 ranking.
 - RFC 8785 JSON Canonicalization Scheme (JCS) is used for replay and audit hashes.
 - Evidence Cards use a deterministic template. Every displayed price number has `source_ts`, `fetched_at`, `rules_hash`, and `run_id`. `fetched_at` proves collection time only; freshness comes from `source_ts` and `update_model`.
-- Source registry health includes breaker state and dead-letter count. Fault injection demonstrates allowlisted retry and quarantine actions.
+- Source registry health includes breaker state and dead-letter count. Developer-only fault injection demonstrates allowlisted retry and quarantine actions, but is disabled by default and must remain disabled on internet-facing deployments.
 - Field permissions and explicit revoked fields are enforced in G1. Denied offers are excluded with `PERMISSION_DENIED` or `PERMISSION_REVOKED`; restricted values are not normalized into snapshots, result cards, or audit payloads. `make purge` runs the daily raw-payload deletion workflow while retaining decisions and hashes.
 - Merchant destinations must be HTTPS on the exact approved hostname, with no userinfo or non-443 port. Redirect targets are independently checked. Fixture URLs remain non-clickable and are never rendered as anchors.
 
@@ -84,17 +84,18 @@ deal-grandpa purge
 DEAL_GRANDPA_NOW=2026-10-16T12:00:00Z uvicorn deal_grandpa.api.app:app --host 0.0.0.0 --port 8000
 ```
 
-Open `http://localhost:8000`. The page is a single static UI labelled **FIXTURE**. It has a query bar, outcome pill (`RECOMMEND`, `WITH_CAVEATS`, or `ABSTAIN`), exact-variant ranked offers, effective-cost breakdown, expanded Evidence Cards with all G1–G7 reason codes, an excluded panel, source health, breaker state, dead-letter count, and a Break-it button.
+Open `http://localhost:8000`. The page is a single static UI labelled **FIXTURE**. It has a query bar, outcome pill (`RECOMMEND`, `WITH_CAVEATS`, or `ABSTAIN`), exact-variant ranked offers, effective-cost breakdown, expanded Evidence Cards with all G1–G7 reason codes, an excluded panel and source health. Developer-only fault controls are hidden by default and appear only when explicitly enabled.
 
 Endpoints:
 
 - `GET /api/health`
+- `GET /api/config` (reports whether developer fault injection is enabled)
 - `POST /api/runs` with `{"query":"..."}`
 - `GET /api/runs/{run_id}`
 - `GET /api/runs/{run_id}/evidence`
 - `POST /api/runs/{run_id}/replay`
 - `GET /api/sources`
-- `POST /api/fault-injection` with `{"mode":"timeout_once"}`, `persistent_failure`, or `clear`
+- `POST /api/fault-injection` with `{"mode":"timeout_once"}`, `persistent_failure`, or `clear` (disabled unless `DEAL_GRANDPA_ENABLE_FAULT_INJECTION=true`; local development only)
 - `GET /api/verify-log`
 
 No endpoint claims a market-wide best price from one observation; one offer is never presented as market-wide evidence.
@@ -197,4 +198,4 @@ The project does not include credentials or a network source connector. A produc
 
 ## Honest limitations
 
-This release is a safe **FIXTURE** prototype, not a production-ready claim or a claim of market coverage. It does not scrape retailers, perform currency conversion, infer missing attributes, or use an advisor model. The static source is intentionally limited so the recommendation can be replayed offline. SQLite is suitable for a local/small deployment; a multi-worker hosted deployment would need a separately reviewed database adapter and stronger external audit controls. If Docker is unavailable, `make docker-test` must be reported as blocked rather than assumed to pass.
+This release is a safe **FIXTURE** prototype, not a production-ready claim or a claim of market coverage. It does not scrape retailers, perform currency conversion, infer missing attributes, or use an advisor model. The static source is intentionally limited so the recommendation can be replayed offline. Developer fault injection is disabled by default. The API includes a basic in-process per-client IP throttle (default 120 API requests per minute, configurable with `DEAL_GRANDPA_RATE_LIMIT_PER_MINUTE`) and fault injection is disabled by default. This is best-effort protection for the single-process demo only: do not treat it as production security. Before public internet launch, configure trusted edge-level rate limiting, review authentication/abuse controls, and confirm the hosting proxy's client-IP behavior. The app uses SQLite and is not approved for multi-worker production deployment. SQLite is suitable for a local/small deployment; a multi-worker hosted deployment would need a separately reviewed database adapter and stronger external audit controls. If Docker is unavailable, `make docker-test` must be reported as blocked rather than assumed to pass.
