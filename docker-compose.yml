@@ -7,6 +7,7 @@ services:
       DEAL_GRANDPA_DB: /app/var/deal_grandpa.sqlite3
       DEAL_GRANDPA_FIXTURE: /app/tests/fixtures/golden_offers.json
       DEAL_GRANDPA_ADVISOR: none
+      DEAL_GRANDPA_ENABLE_FAULT_INJECTION: ${DEAL_GRANDPA_ENABLE_FAULT_INJECTION:-false}
     volumes:
       - deal-grandpa-data:/app/var
 
