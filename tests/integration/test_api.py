@@ -59,3 +59,19 @@ def test_fault_injection_requires_explicit_local_enable(monkeypatch):
     clear = client.post("/api/fault-injection", json={"mode": "clear"})
     assert clear.status_code == 200
     assert clear.json()["fault"] == "clear"
+
+
+
+def test_api_rate_limit_returns_429_with_retry_after(monkeypatch):
+    monkeypatch.setenv("DEAL_GRANDPA_RATE_LIMIT_PER_MINUTE", "2")
+    with app_module._rate_limit_lock:
+        app_module._rate_limit_hits.clear()
+
+    client = TestClient(app)
+    assert client.get("/api/health").status_code == 200
+    assert client.get("/api/health").status_code == 200
+
+    limited = client.get("/api/health")
+    assert limited.status_code == 429
+    assert int(limited.headers["Retry-After"]) >= 1
+    assert limited.json()["detail"] == "Rate limit exceeded. Please retry later."
