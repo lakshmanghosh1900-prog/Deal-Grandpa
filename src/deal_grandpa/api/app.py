@@ -33,6 +33,16 @@ def static_asset(asset: str):
     return FileResponse(path)
 
 
+def fault_injection_enabled() -> bool:
+    """Fault controls are opt-in for local development, never on by default."""
+    return os.getenv("DEAL_GRANDPA_ENABLE_FAULT_INJECTION", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+@app.get("/api/config")
+def config():
+    return {"mode": "FIXTURE", "fault_injection_enabled": fault_injection_enabled()}
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok", "mode": "FIXTURE", "advisor": os.getenv("DEAL_GRANDPA_ADVISOR", "none")}
@@ -87,6 +97,8 @@ def sources():
 
 @app.post("/api/fault-injection")
 def fault_injection(request: FaultInput):
+    if not fault_injection_enabled():
+        raise HTTPException(status_code=404, detail="Fault injection is disabled.")
     service.fault_mode = None if request.mode == "clear" else request.mode
     return {"mode": "FIXTURE", "fault": service.fault_mode or "clear", "allowlist": ["retry", "quarantine", "expire", "rollback", "notify"]}
 
