@@ -3,17 +3,17 @@ import tomllib
 
 
 def test_project_runtime_is_exactly_python_31211():
-    assert Path(".python-version").read_text().strip() == "3.12.11"
-    project = tomllib.loads(Path("pyproject.toml").read_text())["project"]
-    lock = tomllib.loads(Path("uv.lock").read_text())
+    assert Path(".python-version").read_text(encoding="utf-8").strip() == "3.12.11"
+    project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
+    lock = tomllib.loads(Path("uv.lock").read_text(encoding="utf-8"))
     assert project["requires-python"] == "==3.12.11"
     assert lock["requires-python"] == "==3.12.11"
-    assert "python:3.12.11-slim" in Path("Dockerfile").read_text()
+    assert "python:3.12.11-slim" in Path("Dockerfile").read_text(encoding="utf-8")
 
 
 def test_docker_and_ci_use_locked_runtime():
-    dockerfile = Path("Dockerfile").read_text()
-    ci = Path(".github/workflows/ci.yml").read_text()
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+    ci = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "uv sync --locked" in dockerfile
     assert "python-version-file: .python-version" in ci
     assert "uv sync --locked" in ci
@@ -22,9 +22,9 @@ def test_docker_and_ci_use_locked_runtime():
 
 
 def test_public_fixture_demo_contract_is_visible_and_safe():
-    page = Path("src/deal_grandpa/static/index.html").read_text()
-    compose = Path("docker-compose.yml").read_text()
-    readme = Path("README.md").read_text()
+    page = Path("src/deal_grandpa/static/index.html").read_text(encoding="utf-8")
+    compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+    readme = Path("README.md").read_text(encoding="utf-8")
     assert "FIXTURE DEMO" in page
     assert "not clickable purchase links" in page
     assert "How it works" in page
@@ -35,7 +35,7 @@ def test_public_fixture_demo_contract_is_visible_and_safe():
 
 
 def test_fixture_links_are_not_rendered_as_clickable_anchors():
-    javascript = Path("src/deal_grandpa/static/app.js").read_text()
+    javascript = Path("src/deal_grandpa/static/app.js").read_text(encoding="utf-8")
     assert "item.url" not in javascript
     assert "href=" not in javascript
     assert "<a " not in javascript
